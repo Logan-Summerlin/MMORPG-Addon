@@ -5,6 +5,7 @@ using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
 using DailiesChecklist.Models;
 using DailiesChecklist.Services;
+using DailiesChecklist.Utils;
 using ImGuiNET;
 
 namespace DailiesChecklist.Windows;
@@ -19,17 +20,21 @@ namespace DailiesChecklist.Windows;
 /// </summary>
 public class SettingsWindow : Window, IDisposable
 {
-    private readonly Plugin plugin;
-    private readonly Configuration configuration;
-    private readonly Action? onStateChanged;
+    private readonly Plugin _plugin;
+    private readonly Configuration _configuration;
+    private readonly Action? _onStateChanged;
 
-    // Reference to external checklist state (if provided via DI)
-    private ChecklistState? externalState;
+    /// <summary>
+    /// Reference to external checklist state (if provided via DI).
+    /// </summary>
+    private ChecklistState? _externalState;
 
-    // Cached task list for the settings UI (fallback when no external state)
-    private List<ChecklistTask> taskList;
+    /// <summary>
+    /// Cached task list for the settings UI (fallback when no external state).
+    /// </summary>
+    private List<ChecklistTask> _taskList;
 
-    private bool disposed = false;
+    private bool _disposed;
 
     /// <summary>
     /// Initializes the settings window with dependency injection.
@@ -44,13 +49,13 @@ public class SettingsWindow : Window, IDisposable
         : base("Dailies Checklist Settings###DailiesChecklistSettings",
             ImGuiWindowFlags.NoCollapse)
     {
-        this.plugin = plugin ?? throw new ArgumentNullException(nameof(plugin));
-        this.configuration = plugin.Configuration;
-        this.onStateChanged = onStateChanged;
-        this.externalState = checklistState;
+        _plugin = plugin ?? throw new ArgumentNullException(nameof(plugin));
+        _configuration = plugin.Configuration;
+        _onStateChanged = onStateChanged;
+        _externalState = checklistState;
 
         // Use external state's tasks or fall back to default tasks
-        taskList = checklistState?.Tasks ?? TaskRegistry.GetDefaultTasks();
+        _taskList = checklistState?.Tasks ?? TaskRegistry.GetDefaultTasks();
 
         // Size constraints for settings window
         SizeConstraints = new WindowSizeConstraints
@@ -69,10 +74,10 @@ public class SettingsWindow : Window, IDisposable
     /// </summary>
     public void Dispose()
     {
-        if (disposed)
+        if (_disposed)
             return;
 
-        disposed = true;
+        _disposed = true;
         // No event handlers to clean up
     }
 
@@ -83,7 +88,7 @@ public class SettingsWindow : Window, IDisposable
     public override void OnClose()
     {
         // Auto-save when closing
-        configuration.Save();
+        _configuration.Save();
         Plugin.Log.Debug("Settings saved on window close");
     }
 
@@ -107,6 +112,12 @@ public class SettingsWindow : Window, IDisposable
                 ImGui.EndTabItem();
             }
 
+            if (ImGui.BeginTabItem("Detection"))
+            {
+                DrawDetectionSettings();
+                ImGui.EndTabItem();
+            }
+
             ImGui.EndTabBar();
         }
     }
@@ -121,11 +132,11 @@ public class SettingsWindow : Window, IDisposable
         // Window Opacity Slider (25% - 100%)
         ImGui.Text("Window Opacity");
         ImGui.SetNextItemWidth(-1);
-        var opacity = configuration.WindowOpacity * 100f; // Convert to percentage
+        var opacity = _configuration.WindowOpacity * 100f; // Convert to percentage
         if (ImGui.SliderFloat("##Opacity", ref opacity, 25f, 100f, "%.0f%%"))
         {
-            configuration.WindowOpacity = opacity / 100f; // Convert back to 0-1 range
-            configuration.Save();
+            _configuration.WindowOpacity = opacity / 100f; // Convert back to 0-1 range
+            _configuration.Save();
         }
         if (ImGui.IsItemHovered())
         {
@@ -137,11 +148,11 @@ public class SettingsWindow : Window, IDisposable
         ImGui.Spacing();
 
         // Lock Position Checkbox
-        var windowLocked = configuration.WindowLocked;
+        var windowLocked = _configuration.WindowLocked;
         if (ImGui.Checkbox("Lock Window Position", ref windowLocked))
         {
-            configuration.WindowLocked = windowLocked;
-            configuration.Save();
+            _configuration.WindowLocked = windowLocked;
+            _configuration.Save();
         }
         if (ImGui.IsItemHovered())
         {
@@ -151,11 +162,11 @@ public class SettingsWindow : Window, IDisposable
         ImGui.Spacing();
 
         // Show Locations Checkbox
-        var showLocations = configuration.ShowLocations;
+        var showLocations = _configuration.ShowLocations;
         if (ImGui.Checkbox("Show Task Locations", ref showLocations))
         {
-            configuration.ShowLocations = showLocations;
-            configuration.Save();
+            _configuration.ShowLocations = showLocations;
+            _configuration.Save();
         }
         if (ImGui.IsItemHovered())
         {
@@ -165,15 +176,29 @@ public class SettingsWindow : Window, IDisposable
         ImGui.Spacing();
 
         // Show Auto-Detect Indicators Checkbox
-        var showAutoDetect = configuration.ShowAutoDetectIndicators;
+        var showAutoDetect = _configuration.ShowAutoDetectIndicators;
         if (ImGui.Checkbox("Show Auto-Detect Indicators", ref showAutoDetect))
         {
-            configuration.ShowAutoDetectIndicators = showAutoDetect;
-            configuration.Save();
+            _configuration.ShowAutoDetectIndicators = showAutoDetect;
+            _configuration.Save();
         }
         if (ImGui.IsItemHovered())
         {
             ImGui.SetTooltip("Show asterisk (*) next to tasks that can be automatically detected");
+        }
+
+        ImGui.Spacing();
+
+        // Show Progress Bars Checkbox
+        var showProgressBars = _configuration.ShowProgressBars;
+        if (ImGui.Checkbox("Show Progress Bars", ref showProgressBars))
+        {
+            _configuration.ShowProgressBars = showProgressBars;
+            _configuration.Save();
+        }
+        if (ImGui.IsItemHovered())
+        {
+            ImGui.SetTooltip("Show progress bars for each category (Daily/Weekly) completion");
         }
 
         ImGui.Spacing();
@@ -186,18 +211,18 @@ public class SettingsWindow : Window, IDisposable
 
         using (ImRaii.PushIndent(10f))
         {
-            var collapseDailyByDefault = configuration.CollapseDailyByDefault;
+            var collapseDailyByDefault = _configuration.CollapseDailyByDefault;
             if (ImGui.Checkbox("Collapse Daily Activities by default", ref collapseDailyByDefault))
             {
-                configuration.CollapseDailyByDefault = collapseDailyByDefault;
-                configuration.Save();
+                _configuration.CollapseDailyByDefault = collapseDailyByDefault;
+                _configuration.Save();
             }
 
-            var collapseWeeklyByDefault = configuration.CollapseWeeklyByDefault;
+            var collapseWeeklyByDefault = _configuration.CollapseWeeklyByDefault;
             if (ImGui.Checkbox("Collapse Weekly Activities by default", ref collapseWeeklyByDefault))
             {
-                configuration.CollapseWeeklyByDefault = collapseWeeklyByDefault;
-                configuration.Save();
+                _configuration.CollapseWeeklyByDefault = collapseWeeklyByDefault;
+                _configuration.Save();
             }
         }
 
@@ -208,9 +233,9 @@ public class SettingsWindow : Window, IDisposable
         // Reset Window Position Button
         if (ImGui.Button("Reset Window Position"))
         {
-            configuration.WindowPosition = null;
-            configuration.WindowSize = null;
-            configuration.Save();
+            _configuration.WindowPosition = null;
+            _configuration.WindowSize = null;
+            _configuration.Save();
             Plugin.Log.Information("Window position reset to default");
         }
         if (ImGui.IsItemHovered())
@@ -282,6 +307,118 @@ public class SettingsWindow : Window, IDisposable
     }
 
     /// <summary>
+    /// Draws detection-related settings: feature flags for auto-detection modules.
+    /// </summary>
+    private void DrawDetectionSettings()
+    {
+        ImGui.Spacing();
+
+        ImGui.Text("Auto-Detection Modules");
+        UIHelpers.HelpMarker(
+            "Control which game state detectors are active. " +
+            "Disable a detector if it causes issues or if you prefer manual tracking for certain tasks.");
+        ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.Spacing();
+
+        // Roulette Detection
+        var enableRouletteDetection = _configuration.FeatureFlags.EnableRouletteDetection;
+        if (ImGui.Checkbox("Duty Roulette Detection", ref enableRouletteDetection))
+        {
+            _configuration.FeatureFlags.EnableRouletteDetection = enableRouletteDetection;
+            _configuration.Save();
+            Plugin.Log.Information($"Roulette detection {(enableRouletteDetection ? "enabled" : "disabled")}");
+        }
+        if (ImGui.IsItemHovered())
+        {
+            ImGui.SetTooltip("Automatically detect completion of duty roulettes");
+        }
+
+        ImGui.Spacing();
+
+        // Cactpot Detection
+        var enableCactpotDetection = _configuration.FeatureFlags.EnableCactpotDetection;
+        if (ImGui.Checkbox("Cactpot Detection", ref enableCactpotDetection))
+        {
+            _configuration.FeatureFlags.EnableCactpotDetection = enableCactpotDetection;
+            _configuration.Save();
+            Plugin.Log.Information($"Cactpot detection {(enableCactpotDetection ? "enabled" : "disabled")}");
+        }
+        if (ImGui.IsItemHovered())
+        {
+            ImGui.SetTooltip("Automatically detect Mini and Jumbo Cactpot ticket purchases");
+        }
+
+        ImGui.Spacing();
+
+        // Beast Tribe Detection
+        var enableBeastTribeDetection = _configuration.FeatureFlags.EnableBeastTribeDetection;
+        if (ImGui.Checkbox("Beast Tribe Quest Detection", ref enableBeastTribeDetection))
+        {
+            _configuration.FeatureFlags.EnableBeastTribeDetection = enableBeastTribeDetection;
+            _configuration.Save();
+            Plugin.Log.Information($"Beast Tribe detection {(enableBeastTribeDetection ? "enabled" : "disabled")}");
+        }
+        if (ImGui.IsItemHovered())
+        {
+            ImGui.SetTooltip("Automatically track beast tribe daily quest allowances");
+        }
+
+        ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.Spacing();
+
+        // Detection status info
+        ImGui.TextColored(UIHelpers.Colors.TextDim, "Detection Status:");
+        ImGui.Spacing();
+
+        using (ImRaii.PushIndent(10f))
+        {
+            var detectorCount = 0;
+            if (enableRouletteDetection) detectorCount++;
+            if (enableCactpotDetection) detectorCount++;
+            if (enableBeastTribeDetection) detectorCount++;
+
+            var statusColor = detectorCount > 0 ? UIHelpers.Colors.Success : UIHelpers.Colors.Warning;
+            var statusText = detectorCount > 0
+                ? $"{detectorCount} detector(s) active"
+                : "All detectors disabled";
+
+            ImGui.TextColored(statusColor, statusText);
+
+            if (detectorCount == 0)
+            {
+                ImGui.TextColored(UIHelpers.Colors.TextDim, "All tasks will require manual tracking.");
+            }
+        }
+
+        ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.Spacing();
+
+        // Reset to defaults button
+        if (ImGui.Button("Enable All Detectors"))
+        {
+            _configuration.FeatureFlags.EnableRouletteDetection = true;
+            _configuration.FeatureFlags.EnableCactpotDetection = true;
+            _configuration.FeatureFlags.EnableBeastTribeDetection = true;
+            _configuration.Save();
+            Plugin.Log.Information("All detectors enabled");
+        }
+
+        ImGui.SameLine();
+
+        if (ImGui.Button("Disable All Detectors"))
+        {
+            _configuration.FeatureFlags.EnableRouletteDetection = false;
+            _configuration.FeatureFlags.EnableCactpotDetection = false;
+            _configuration.FeatureFlags.EnableBeastTribeDetection = false;
+            _configuration.Save();
+            Plugin.Log.Information("All detectors disabled");
+        }
+    }
+
+    /// <summary>
     /// Draws checkbox list for enabling/disabling tasks in a category.
     /// </summary>
     private void DrawTaskToggleList(TaskCategory category)
@@ -311,7 +448,7 @@ public class SettingsWindow : Window, IDisposable
                     Plugin.Log.Debug($"Task '{task.Name}' enabled: {isEnabled}");
 
                     // Notify that state has changed (for persistence)
-                    onStateChanged?.Invoke();
+                    _onStateChanged?.Invoke();
                 }
 
                 // Show tooltip with task description
@@ -339,10 +476,10 @@ public class SettingsWindow : Window, IDisposable
     /// </summary>
     private void SetAllTasksEnabled(bool enabled)
     {
-        if (taskList == null)
+        if (_taskList == null)
             return;
 
-        foreach (var task in taskList)
+        foreach (var task in _taskList)
         {
             task.IsEnabled = enabled;
         }
@@ -350,7 +487,7 @@ public class SettingsWindow : Window, IDisposable
         Plugin.Log.Information($"All tasks set to enabled: {enabled}");
 
         // Notify that state has changed (for persistence)
-        onStateChanged?.Invoke();
+        _onStateChanged?.Invoke();
     }
 
     /// <summary>
@@ -361,20 +498,20 @@ public class SettingsWindow : Window, IDisposable
         var defaultTasks = TaskRegistry.GetDefaultTasks();
 
         // If we have external state, update it; otherwise update local list
-        if (externalState != null)
+        if (_externalState != null)
         {
-            externalState.Tasks = defaultTasks;
-            taskList = externalState.Tasks;
+            _externalState.Tasks = defaultTasks;
+            _taskList = _externalState.Tasks;
         }
         else
         {
-            taskList = defaultTasks;
+            _taskList = defaultTasks;
         }
 
         Plugin.Log.Information("Tasks reset to defaults");
 
         // Notify that state has changed (for persistence)
-        onStateChanged?.Invoke();
+        _onStateChanged?.Invoke();
     }
 
     /// <summary>
@@ -384,10 +521,10 @@ public class SettingsWindow : Window, IDisposable
     {
         var result = new List<ChecklistTask>();
 
-        if (taskList == null)
+        if (_taskList == null)
             return result;
 
-        foreach (var task in taskList)
+        foreach (var task in _taskList)
         {
             if (task.Category == category)
             {
@@ -405,7 +542,7 @@ public class SettingsWindow : Window, IDisposable
     /// Gets the current task list.
     /// Used for synchronization with MainWindow.
     /// </summary>
-    public List<ChecklistTask> GetTaskList() => taskList;
+    public List<ChecklistTask> GetTaskList() => _taskList;
 
     /// <summary>
     /// Updates the task list from an external source.
@@ -415,7 +552,7 @@ public class SettingsWindow : Window, IDisposable
     {
         if (tasks != null)
         {
-            taskList = tasks;
+            _taskList = tasks;
         }
     }
 
@@ -425,7 +562,7 @@ public class SettingsWindow : Window, IDisposable
     /// </summary>
     public void SetChecklistState(ChecklistState? state)
     {
-        externalState = state;
-        taskList = state?.Tasks ?? taskList;
+        _externalState = state;
+        _taskList = state?.Tasks ?? _taskList;
     }
 }

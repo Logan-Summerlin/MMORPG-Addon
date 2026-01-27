@@ -31,6 +31,9 @@ namespace DailiesChecklist.Services
         private ChecklistState? _pendingSave;
         private bool _disposed;
 
+        // Optional logger for when running in plugin context
+        private readonly IPluginLog? _log;
+
         // Dalamud plugin interface for config operations (injected)
         private readonly IDalamudConfigProvider? _configProvider;
 
@@ -82,7 +85,8 @@ namespace DailiesChecklist.Services
         /// Useful for testing or standalone operation.
         /// </summary>
         /// <param name="configFilePath">The path to the configuration file.</param>
-        public PersistenceService(string configFilePath)
+        /// <param name="log">Optional logger for diagnostics.</param>
+        public PersistenceService(string configFilePath, IPluginLog? log = null)
         {
             if (string.IsNullOrWhiteSpace(configFilePath))
             {
@@ -91,6 +95,7 @@ namespace DailiesChecklist.Services
 
             _configFilePath = configFilePath;
             _jsonOptions = CreateJsonOptions();
+            _log = log;
         }
 
         /// <summary>
@@ -219,8 +224,8 @@ namespace DailiesChecklist.Services
             }
             catch (Exception ex)
             {
-                // Log the error (in a real implementation, use IPluginLog)
-                System.Diagnostics.Debug.WriteLine($"[PersistenceService] Save failed: {ex.Message}");
+                // Log the error using IPluginLog if available, otherwise Debug.WriteLine
+                LogError($"Save failed: {ex.Message}", ex);
                 OnSaveCompleted?.Invoke(false);
                 return false;
             }
@@ -284,7 +289,7 @@ namespace DailiesChecklist.Services
             catch (JsonException ex)
             {
                 // JSON parsing error - configuration is corrupt
-                System.Diagnostics.Debug.WriteLine($"[PersistenceService] JSON parse error: {ex.Message}");
+                LogError($"JSON parse error: {ex.Message}", ex);
                 var defaultState = CreateDefaultState();
                 OnLoadCompleted?.Invoke(false);
                 return defaultState;
@@ -292,7 +297,7 @@ namespace DailiesChecklist.Services
             catch (Exception ex)
             {
                 // Other error during load
-                System.Diagnostics.Debug.WriteLine($"[PersistenceService] Load failed: {ex.Message}");
+                LogError($"Load failed: {ex.Message}", ex);
                 var defaultState = CreateDefaultState();
                 OnLoadCompleted?.Invoke(false);
                 return defaultState;
@@ -465,8 +470,35 @@ namespace DailiesChecklist.Services
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[PersistenceService] Delete failed: {ex.Message}");
+                LogError($"Delete failed: {ex.Message}", ex);
                 return false;
+            }
+        }
+
+        /// <summary>
+        /// Logs an error message using IPluginLog if available, otherwise Debug.WriteLine.
+        /// </summary>
+        /// <param name="message">The error message.</param>
+        /// <param name="ex">Optional exception for detailed logging.</param>
+        private void LogError(string message, Exception? ex = null)
+        {
+            if (_log != null)
+            {
+                if (ex != null)
+                {
+                    _log.Error(ex, "[PersistenceService] {Message}", message);
+                }
+                else
+                {
+                    _log.Error("[PersistenceService] {Message}", message);
+                }
+            }
+            else
+            {
+                var fullMessage = ex != null
+                    ? $"[PersistenceService] {message}: {ex}"
+                    : $"[PersistenceService] {message}";
+                System.Diagnostics.Debug.WriteLine(fullMessage);
             }
         }
 

@@ -31,7 +31,17 @@ public class Configuration : IPluginConfiguration
     /// Configuration version for migration support.
     /// Increment this when making breaking changes to the configuration schema.
     /// </summary>
-    public int Version { get; set; } = 0;
+    private int _version = 0;
+
+    /// <summary>
+    /// Configuration version with bounds validation.
+    /// Negative values are not allowed.
+    /// </summary>
+    public int Version
+    {
+        get => _version;
+        set => _version = Math.Max(0, value);
+    }
 
     #region Window Display Settings
 
@@ -48,7 +58,17 @@ public class Configuration : IPluginConfiguration
     /// <summary>
     /// Window opacity (0.25 to 1.0).
     /// </summary>
-    public float WindowOpacity { get; set; } = 1.0f;
+    private float _windowOpacity = 1.0f;
+
+    /// <summary>
+    /// Window opacity with bounds validation (0.25 to 1.0).
+    /// Values outside this range are clamped automatically.
+    /// </summary>
+    public float WindowOpacity
+    {
+        get => _windowOpacity;
+        set => _windowOpacity = Math.Clamp(value, 0.25f, 1.0f);
+    }
 
     /// <summary>
     /// Whether the window position is locked (prevents dragging).
@@ -88,6 +108,11 @@ public class Configuration : IPluginConfiguration
     /// Whether to collapse the weekly section by default.
     /// </summary>
     public bool CollapseWeeklyByDefault { get; set; } = false;
+
+    /// <summary>
+    /// Whether to show progress bars for task categories.
+    /// </summary>
+    public bool ShowProgressBars { get; set; } = true;
 
     #endregion
 
