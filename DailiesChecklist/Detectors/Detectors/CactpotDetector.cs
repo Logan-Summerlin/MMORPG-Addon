@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using Dalamud.Game.Addon.Lifecycle;
+using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
 using Dalamud.Plugin.Services;
 
 namespace DailiesChecklist.Detectors;
@@ -32,11 +34,15 @@ public sealed class CactpotDetector : ITaskDetector
     private readonly IPluginLog _log;
     private readonly IClientState _clientState;
     private readonly IFramework _framework;
+    private readonly IGameGui _gameGui;
+    private readonly IAddonLifecycle _addonLifecycle;
 
     private readonly Dictionary<string, int> _ticketCounts;
     private readonly object _lock = new();
     private bool _isInitialized;
     private bool _isDisposed;
+    private bool _isInGoldSaucer;
+    private bool _addonListenersRegistered;
 
     // Gold Saucer territory type ID
     private const ushort GoldSaucerTerritoryId = 144;
@@ -44,6 +50,10 @@ public sealed class CactpotDetector : ITaskDetector
     // Ticket limits
     private const int MiniCactpotMaxTickets = 3;
     private const int JumboCactpotMaxTickets = 3;
+
+    // Addon names for detection
+    private const string MiniCactpotResultAddonName = "MiniCactpotResult";
+    private const string JumboCactpotAddonName = "LotteryWeekly";
 
     /// <summary>
     /// Task IDs for Cactpot activities.
@@ -69,12 +79,21 @@ public sealed class CactpotDetector : ITaskDetector
     /// <param name="log">The plugin log service.</param>
     /// <param name="clientState">The Dalamud client state service.</param>
     /// <param name="framework">The Dalamud framework service for update events.</param>
+    /// <param name="gameGui">The Dalamud game GUI service for monitoring addon state.</param>
+    /// <param name="addonLifecycle">The Dalamud addon lifecycle service for tracking addon events.</param>
     /// <exception cref="ArgumentNullException">Thrown if any parameter is null.</exception>
-    public CactpotDetector(IPluginLog log, IClientState clientState, IFramework framework)
+    public CactpotDetector(
+        IPluginLog log,
+        IClientState clientState,
+        IFramework framework,
+        IGameGui gameGui,
+        IAddonLifecycle addonLifecycle)
     {
         _log = log ?? throw new ArgumentNullException(nameof(log));
         _clientState = clientState ?? throw new ArgumentNullException(nameof(clientState));
         _framework = framework ?? throw new ArgumentNullException(nameof(framework));
+        _gameGui = gameGui ?? throw new ArgumentNullException(nameof(gameGui));
+        _addonLifecycle = addonLifecycle ?? throw new ArgumentNullException(nameof(addonLifecycle));
 
         _ticketCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
         {
@@ -166,14 +185,19 @@ public sealed class CactpotDetector : ITaskDetector
 
         try
         {
+            var wasInGoldSaucer = _isInGoldSaucer;
+
             if (territoryType == GoldSaucerTerritoryId)
             {
+                _isInGoldSaucer = true;
                 _log.Debug("Entered Gold Saucer. CactpotDetector active.");
                 OnEnterGoldSaucer();
             }
-            else
+            else if (wasInGoldSaucer)
             {
-                _log.Verbose("Left Gold Saucer territory.");
+                _isInGoldSaucer = false;
+                _log.Debug("Left Gold Saucer. Stopping Cactpot addon monitoring.");
+                OnLeaveGoldSaucer();
             }
         }
         catch (Exception ex)
@@ -188,14 +212,131 @@ public sealed class CactpotDetector : ITaskDetector
     /// </summary>
     private void OnEnterGoldSaucer()
     {
-        // TODO: Phase 2 - Set up Gold Saucer-specific monitoring
-        // Possible approaches:
-        // 1. Monitor for Mini Cactpot addon opening
-        // 2. Track MGP changes after Cactpot interactions
-        // 3. Read Cactpot ticket count from game data
-        // 4. Hook Cactpot NPC interaction
+        if (_addonListenersRegistered)
+        {
+            _log.Verbose("Addon listeners already registered.");
+            return;
+        }
 
-        _log.Debug("TODO: Implement Gold Saucer Cactpot monitoring.");
+        try
+        {
+            // Register for Mini Cactpot result addon - this appears after playing a ticket
+            _addonLifecycle.RegisterListener(
+                AddonEvent.PostSetup,
+                MiniCactpotResultAddonName,
+                OnMiniCactpotResultAddonSetup);
+
+            // Register for Jumbo Cactpot addon
+            // TODO: The LotteryWeekly addon appears both when viewing results AND when buying tickets.
+            // Need to differentiate between these two states by reading addon data or tracking
+            // interaction sequence. For now, we register but the handler needs additional logic.
+            _addonLifecycle.RegisterListener(
+                AddonEvent.PostSetup,
+                JumboCactpotAddonName,
+                OnJumboCactpotAddonSetup);
+
+            _addonListenersRegistered = true;
+            _log.Information("Gold Saucer Cactpot addon monitoring started.");
+        }
+        catch (Exception ex)
+        {
+            _log.Error(ex, "Failed to register addon lifecycle listeners for Cactpot detection.");
+        }
+    }
+
+    /// <summary>
+    /// Called when the player leaves the Gold Saucer.
+    /// Cleans up addon monitoring.
+    /// </summary>
+    private void OnLeaveGoldSaucer()
+    {
+        UnregisterAddonListeners();
+    }
+
+    /// <summary>
+    /// Unregisters all addon lifecycle listeners.
+    /// </summary>
+    private void UnregisterAddonListeners()
+    {
+        if (!_addonListenersRegistered)
+            return;
+
+        try
+        {
+            _addonLifecycle.UnregisterListener(
+                AddonEvent.PostSetup,
+                MiniCactpotResultAddonName,
+                OnMiniCactpotResultAddonSetup);
+
+            _addonLifecycle.UnregisterListener(
+                AddonEvent.PostSetup,
+                JumboCactpotAddonName,
+                OnJumboCactpotAddonSetup);
+
+            _addonListenersRegistered = false;
+            _log.Debug("Cactpot addon listeners unregistered.");
+        }
+        catch (Exception ex)
+        {
+            _log.Error(ex, "Error unregistering addon lifecycle listeners.");
+        }
+    }
+
+    /// <summary>
+    /// Handles the Mini Cactpot result addon appearing.
+    /// This indicates a Mini Cactpot ticket was played.
+    /// </summary>
+    /// <param name="type">The addon event type.</param>
+    /// <param name="args">The addon event arguments.</param>
+    private void OnMiniCactpotResultAddonSetup(AddonEvent type, AddonArgs args)
+    {
+        if (_isDisposed || !IsEnabled)
+            return;
+
+        try
+        {
+            _log.Debug("Mini Cactpot result addon detected - recording ticket play.");
+            RecordMiniCactpotPlay();
+        }
+        catch (Exception ex)
+        {
+            _log.Error(ex, "Error handling Mini Cactpot result addon event.");
+        }
+    }
+
+    /// <summary>
+    /// Handles the Jumbo Cactpot addon appearing.
+    /// </summary>
+    /// <param name="type">The addon event type.</param>
+    /// <param name="args">The addon event arguments.</param>
+    /// <remarks>
+    /// TODO: The LotteryWeekly addon appears for both viewing results and purchasing tickets.
+    /// Additional logic is needed to differentiate between these states:
+    /// - Check addon node values to determine if in purchase mode
+    /// - Track button clicks for "Purchase" confirmation
+    /// - Monitor for the purchase confirmation dialog
+    /// For now, this handler logs the event but does not automatically record a purchase.
+    /// </remarks>
+    private void OnJumboCactpotAddonSetup(AddonEvent type, AddonArgs args)
+    {
+        if (_isDisposed || !IsEnabled)
+            return;
+
+        try
+        {
+            // TODO: Implement logic to differentiate purchase from viewing
+            // The addon appears in both cases, so we need to:
+            // 1. Read addon node data to check current state
+            // 2. Or register for button click events to detect actual purchases
+            _log.Debug("Jumbo Cactpot addon detected - needs additional logic to determine if purchasing.");
+
+            // Do NOT automatically record purchase here - need to verify it's actually a purchase
+            // RecordJumboCactpotPurchase();
+        }
+        catch (Exception ex)
+        {
+            _log.Error(ex, "Error handling Jumbo Cactpot addon event.");
+        }
     }
 
     /// <summary>
@@ -375,7 +516,10 @@ public sealed class CactpotDetector : ITaskDetector
 
         _isDisposed = true;
 
-        // Unsubscribe from all events
+        // Unsubscribe from addon lifecycle listeners
+        UnregisterAddonListeners();
+
+        // Unsubscribe from all client state events
         if (_isInitialized)
         {
             _clientState.TerritoryChanged -= OnTerritoryChanged;

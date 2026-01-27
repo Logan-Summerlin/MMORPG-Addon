@@ -60,6 +60,11 @@ public sealed class Plugin : IDalamudPlugin
     /// </summary>
     [PluginService] internal static IGameGui GameGui { get; private set; } = null!;
 
+    /// <summary>
+    /// Addon lifecycle events for monitoring native UI windows.
+    /// </summary>
+    [PluginService] internal static IAddonLifecycle AddonLifecycle { get; private set; } = null!;
+
     #endregion
 
     #region Constants

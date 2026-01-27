@@ -46,10 +46,11 @@ public sealed class BeastTribeDetector : ITaskDetector
 
     /// <summary>
     /// Task ID for beast tribe daily allowances.
+    /// Must match the ID in TaskRegistry.
     /// </summary>
     private static readonly string[] TaskIds =
     {
-        "beast_tribe_daily",
+        "beast_tribe_quests",
     };
 
     /// <inheritdoc />
@@ -75,6 +76,39 @@ public sealed class BeastTribeDetector : ITaskDetector
         _framework = framework ?? throw new ArgumentNullException(nameof(framework));
 
         _allowancesUsed = 0;
+    }
+
+    /// <summary>
+    /// Safely invokes an action with exception handling.
+    /// </summary>
+    /// <param name="action">The action to invoke.</param>
+    /// <param name="context">A description of the context for logging.</param>
+    private void SafeInvoke(Action action, string context)
+    {
+        try
+        {
+            action();
+        }
+        catch (Exception ex)
+        {
+            _log.Error(ex, "Error in BeastTribeDetector.{Context}", context);
+        }
+    }
+
+    /// <summary>
+    /// Attempts to read the current beast tribe allowance count from game data.
+    /// </summary>
+    /// <returns>Remaining allowances, or null if unavailable.</returns>
+    /// <remarks>
+    /// Implementation note: Beast tribe allowances can potentially be read from
+    /// the PlayerState game structure. This requires FFXIVClientStructs integration.
+    /// For now, returns null to indicate data is not available.
+    /// </remarks>
+    private int? TryReadAllowancesFromGameData()
+    {
+        // TODO: Implement using FFXIVClientStructs.FFXIV.Client.Game.UI.PlayerState
+        // The BeastTribeAllowances field contains remaining daily allowances
+        return null;
     }
 
     /// <inheritdoc />
@@ -124,7 +158,7 @@ public sealed class BeastTribeDetector : ITaskDetector
         if (string.IsNullOrWhiteSpace(taskId))
             return null;
 
-        if (taskId != "beast_tribe_daily")
+        if (taskId != "beast_tribe_quests")
             return null;
 
         lock (_lock)
@@ -198,14 +232,10 @@ public sealed class BeastTribeDetector : ITaskDetector
         // Fire event if completion state changed
         if (wasComplete != isNowComplete)
         {
-            try
+            SafeInvoke(() =>
             {
-                OnTaskStateChanged?.Invoke("beast_tribe_daily", isNowComplete);
-            }
-            catch (Exception ex)
-            {
-                _log.Error(ex, "Error firing OnTaskStateChanged for beast_tribe_daily.");
-            }
+                OnTaskStateChanged?.Invoke("beast_tribe_quests", isNowComplete);
+            }, "UpdateAllowanceCount.OnTaskStateChanged");
         }
     }
 
@@ -258,14 +288,17 @@ public sealed class BeastTribeDetector : ITaskDetector
     /// </summary>
     private void OnLogin()
     {
-        if (_isDisposed)
-            return;
+        SafeInvoke(() =>
+        {
+            if (_isDisposed)
+                return;
 
-        _log.Debug("Player logged in. BeastTribeDetector ready.");
+            _log.Debug("Player logged in. BeastTribeDetector ready.");
 
-        // TODO: Phase 2 - Query current allowance state on login
-        // This should read from character data to restore the correct state
-        QueryAllowanceState();
+            // TODO: Phase 2 - Query current allowance state on login
+            // This should read from character data to restore the correct state
+            QueryAllowanceState();
+        }, "OnLogin");
     }
 
     /// <summary>
@@ -281,14 +314,22 @@ public sealed class BeastTribeDetector : ITaskDetector
     /// </remarks>
     private void QueryAllowanceState()
     {
-        // TODO: Phase 2 - Implement game data query
-        // For now, this is a placeholder
+        SafeInvoke(() =>
+        {
+            // Attempt to read from game data
+            var remainingAllowances = TryReadAllowancesFromGameData();
 
-        _log.Debug("TODO: Implement beast tribe allowance state query.");
-
-        // Example of how state would be set after query:
-        // var remainingAllowances = ReadFromGameData();
-        // SetAllowancesRemaining(remainingAllowances);
+            if (remainingAllowances.HasValue)
+            {
+                _log.Debug("Beast tribe allowances read from game data: {Remaining} remaining.",
+                    remainingAllowances.Value);
+                SetAllowancesRemaining(remainingAllowances.Value);
+            }
+            else
+            {
+                _log.Debug("Beast tribe allowance data not available from game data.");
+            }
+        }, "QueryAllowanceState");
     }
 
     /// <summary>
@@ -296,11 +337,14 @@ public sealed class BeastTribeDetector : ITaskDetector
     /// </summary>
     private void OnLogout(int type, int code)
     {
-        if (_isDisposed)
-            return;
+        SafeInvoke(() =>
+        {
+            if (_isDisposed)
+                return;
 
-        _log.Debug("Player logged out. Clearing BeastTribeDetector state.");
-        ResetState();
+            _log.Debug("Player logged out. Clearing BeastTribeDetector state.");
+            ResetState();
+        }, "OnLogout");
     }
 
     /// <summary>
@@ -319,14 +363,10 @@ public sealed class BeastTribeDetector : ITaskDetector
 
         if (wasComplete)
         {
-            try
+            SafeInvoke(() =>
             {
-                OnTaskStateChanged?.Invoke("beast_tribe_daily", false);
-            }
-            catch (Exception ex)
-            {
-                _log.Error(ex, "Error firing reset event for beast_tribe_daily.");
-            }
+                OnTaskStateChanged?.Invoke("beast_tribe_quests", false);
+            }, "ResetState.OnTaskStateChanged");
         }
 
         _log.Debug("BeastTribeDetector state reset.");
