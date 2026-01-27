@@ -327,6 +327,7 @@ public class SettingsWindow : Window, IDisposable
         {
             _configuration.FeatureFlags.EnableRouletteDetection = enableRouletteDetection;
             _configuration.Save();
+            _plugin.ApplyDetectorFeatureFlags();
             Plugin.Log.Information($"Roulette detection {(enableRouletteDetection ? "enabled" : "disabled")}");
         }
         if (ImGui.IsItemHovered())
@@ -342,6 +343,7 @@ public class SettingsWindow : Window, IDisposable
         {
             _configuration.FeatureFlags.EnableCactpotDetection = enableCactpotDetection;
             _configuration.Save();
+            _plugin.ApplyDetectorFeatureFlags();
             Plugin.Log.Information($"Cactpot detection {(enableCactpotDetection ? "enabled" : "disabled")}");
         }
         if (ImGui.IsItemHovered())
@@ -357,6 +359,7 @@ public class SettingsWindow : Window, IDisposable
         {
             _configuration.FeatureFlags.EnableBeastTribeDetection = enableBeastTribeDetection;
             _configuration.Save();
+            _plugin.ApplyDetectorFeatureFlags();
             Plugin.Log.Information($"Beast Tribe detection {(enableBeastTribeDetection ? "enabled" : "disabled")}");
         }
         if (ImGui.IsItemHovered())
@@ -403,6 +406,7 @@ public class SettingsWindow : Window, IDisposable
             _configuration.FeatureFlags.EnableCactpotDetection = true;
             _configuration.FeatureFlags.EnableBeastTribeDetection = true;
             _configuration.Save();
+            _plugin.ApplyDetectorFeatureFlags();
             Plugin.Log.Information("All detectors enabled");
         }
 
@@ -414,6 +418,7 @@ public class SettingsWindow : Window, IDisposable
             _configuration.FeatureFlags.EnableCactpotDetection = false;
             _configuration.FeatureFlags.EnableBeastTribeDetection = false;
             _configuration.Save();
+            _plugin.ApplyDetectorFeatureFlags();
             Plugin.Log.Information("All detectors disabled");
         }
     }
@@ -526,7 +531,7 @@ public class SettingsWindow : Window, IDisposable
 
         foreach (var task in _taskList)
         {
-            if (task.Category == category)
+            if (IsTaskInCategory(task, category))
             {
                 result.Add(task);
             }
@@ -564,5 +569,12 @@ public class SettingsWindow : Window, IDisposable
     {
         _externalState = state;
         _taskList = state?.Tasks ?? _taskList;
+    }
+
+    private static bool IsTaskInCategory(ChecklistTask task, TaskCategory category)
+    {
+        return category == TaskCategory.Daily
+            ? task.Category == TaskCategory.Daily || task.Category == TaskCategory.GrandCompany
+            : task.Category == category;
     }
 }

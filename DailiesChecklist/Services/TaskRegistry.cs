@@ -276,7 +276,7 @@ namespace DailiesChecklist.Services
                 Name = "GC Supply/Provisioning",
                 Location = "Grand Company HQ",
                 Description = "Turn in crafted/gathered items (resets 20:00 UTC)",
-                Category = TaskCategory.Daily, // Marked Daily but uses GC reset timer
+                Category = TaskCategory.GrandCompany,
                 Detection = DetectionType.AutoDetected,
                 IsEnabled = true,
                 IsCompleted = false,

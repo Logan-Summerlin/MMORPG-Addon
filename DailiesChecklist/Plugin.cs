@@ -65,6 +65,11 @@ public sealed class Plugin : IDalamudPlugin
     /// </summary>
     [PluginService] internal static IAddonLifecycle AddonLifecycle { get; private set; } = null!;
 
+    /// <summary>
+    /// Duty state service for roulette completion detection.
+    /// </summary>
+    [PluginService] internal static IDutyState DutyState { get; private set; } = null!;
+
     #endregion
 
     #region Constants
@@ -123,6 +128,11 @@ public sealed class Plugin : IDalamudPlugin
     /// </summary>
     private ChecklistState ChecklistState { get; set; }
 
+    /// <summary>
+    /// Next time to check for resets (throttled via framework update).
+    /// </summary>
+    private DateTime _nextResetCheckUtc = DateTime.MinValue;
+
     #endregion
 
     #region Constructor
@@ -171,18 +181,15 @@ public sealed class Plugin : IDalamudPlugin
         }
 
         // 5. Check and apply resets
-        var appliedResets = ResetService.CheckAndApplyResets(ChecklistState);
-        foreach (var kvp in appliedResets)
-        {
-            if (kvp.Value)
-            {
-                Log.Information("Applied {ResetType} reset.", kvp.Key);
-            }
-        }
-
         // 6. Create DetectionService
         DetectionService = new DetectionService(Log);
         Log.Debug("DetectionService initialized.");
+
+        // Register detectors based on configuration feature flags
+        RegisterDetectors();
+
+        // Check and apply resets (syncing detectors after registration)
+        ApplyResetsAndSyncDetectors();
 
         // 7. Create Windows (passing state and services via dependency injection)
         MainWindow = new MainWindow(
@@ -191,7 +198,11 @@ public sealed class Plugin : IDalamudPlugin
             resetService: ResetService,
             onStateChanged: SaveChecklistState
         );
-        SettingsWindow = new SettingsWindow(this);
+        SettingsWindow = new SettingsWindow(
+            plugin: this,
+            checklistState: ChecklistState,
+            onStateChanged: SaveChecklistState
+        );
 
         // Add windows to the window system
         WindowSystem.AddWindow(MainWindow);
@@ -207,6 +218,7 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.Draw += DrawUI;
         PluginInterface.UiBuilder.OpenConfigUi += ToggleSettingsUI;
         PluginInterface.UiBuilder.OpenMainUi += ToggleMainUI;
+        Framework.Update += OnFrameworkUpdate;
 
         // Subscribe to detection service events for auto-detection updates
         DetectionService.OnTaskStateChanged += OnTaskStateChanged;
@@ -242,6 +254,7 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.Draw -= DrawUI;
         PluginInterface.UiBuilder.OpenConfigUi -= ToggleSettingsUI;
         PluginInterface.UiBuilder.OpenMainUi -= ToggleMainUI;
+        Framework.Update -= OnFrameworkUpdate;
 
         // Unsubscribe from service events (null-safe)
         if (DetectionService != null)
@@ -366,6 +379,10 @@ public sealed class Plugin : IDalamudPlugin
         {
             task.IsCompleted = isCompleted;
             task.CompletedAt = isCompleted ? DateTime.UtcNow : null;
+            if (task.MaxCount > 1)
+            {
+                task.CurrentCount = isCompleted ? task.MaxCount : 0;
+            }
 
             Log.Debug("Task '{TaskId}' auto-detected as {State} by {Detector}.",
                 taskId,
@@ -406,6 +423,54 @@ public sealed class Plugin : IDalamudPlugin
         else
         {
             Log.Warning("Failed to load checklist state, using defaults.");
+        }
+    }
+
+    #endregion
+
+    #region Reset Handling
+
+    private void OnFrameworkUpdate(IFramework framework)
+    {
+        var now = DateTime.UtcNow;
+        if (now < _nextResetCheckUtc)
+        {
+            return;
+        }
+
+        _nextResetCheckUtc = now.AddMinutes(1);
+        ApplyResetsAndSyncDetectors();
+    }
+
+    private void ApplyResetsAndSyncDetectors()
+    {
+        var appliedResets = ResetService.CheckAndApplyResets(ChecklistState);
+        var resetApplied = false;
+
+        foreach (var kvp in appliedResets)
+        {
+            if (kvp.Value)
+            {
+                resetApplied = true;
+                Log.Information("Applied {ResetType} reset.", kvp.Key);
+            }
+        }
+
+        if (appliedResets.TryGetValue(ResetType.Daily, out var dailyResetApplied) && dailyResetApplied)
+        {
+            DetectionService.GetDetector<RouletteDetector>()?.ResetAllStates();
+            DetectionService.GetDetector<BeastTribeDetector>()?.ResetState();
+            DetectionService.GetDetector<CactpotDetector>()?.ResetStates(resetWeekly: false);
+        }
+
+        if (appliedResets.TryGetValue(ResetType.Weekly, out var weeklyResetApplied) && weeklyResetApplied)
+        {
+            DetectionService.GetDetector<CactpotDetector>()?.ResetStates(resetWeekly: true);
+        }
+
+        if (resetApplied)
+        {
+            SaveChecklistState();
         }
     }
 
@@ -459,6 +524,46 @@ public sealed class Plugin : IDalamudPlugin
     /// Gets the detection service for registering detectors.
     /// </summary>
     public DetectionService? GetDetectionService() => DetectionService;
+
+    #endregion
+
+    #region Detector Registration
+
+    /// <summary>
+    /// Registers available detectors based on configuration feature flags.
+    /// </summary>
+    private void RegisterDetectors()
+    {
+        try
+        {
+            DetectionService.AddDetector(
+                new RouletteDetector(Log, DutyState, ClientState),
+                Configuration.FeatureFlags.EnableRouletteDetection);
+
+            DetectionService.AddDetector(
+                new CactpotDetector(Log, ClientState, Framework, GameGui, AddonLifecycle),
+                Configuration.FeatureFlags.EnableCactpotDetection);
+
+            DetectionService.AddDetector(
+                new BeastTribeDetector(Log, ClientState, Framework),
+                Configuration.FeatureFlags.EnableBeastTribeDetection);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Failed to register one or more detectors.");
+        }
+    }
+
+    /// <summary>
+    /// Applies current configuration feature flags to active detectors.
+    /// Called after settings changes.
+    /// </summary>
+    public void ApplyDetectorFeatureFlags()
+    {
+        DetectionService.SetDetectorEnabled<RouletteDetector>(Configuration.FeatureFlags.EnableRouletteDetection);
+        DetectionService.SetDetectorEnabled<CactpotDetector>(Configuration.FeatureFlags.EnableCactpotDetection);
+        DetectionService.SetDetectorEnabled<BeastTribeDetector>(Configuration.FeatureFlags.EnableBeastTribeDetection);
+    }
 
     #endregion
 }
