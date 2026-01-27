@@ -1,0 +1,361 @@
+# SamplePlugin Directory Structure Guide
+
+This document provides comprehensive documentation of the Dalamud SamplePlugin directory structure, explaining the purpose of each file and how they relate to one another.
+
+---
+
+## Directory Tree Overview
+
+```
+SamplePlugin/
+├── Configuration.cs         # User settings and persistent configuration
+├── Plugin.cs                 # Main plugin entry point and lifecycle management
+├── SamplePlugin.csproj       # MSBuild project file (build configuration)
+├── SamplePlugin.json         # Plugin manifest (metadata for Dalamud)
+├── packages.lock.json        # NuGet dependency lock file
+└── Windows/                  # UI window implementations
+    ├── ConfigWindow.cs       # Settings/configuration window
+    └── MainWindow.cs         # Primary plugin UI window
+
+External Assets (referenced):
+../Data/
+└── goat.png                  # Sample image asset
+```
+
+---
+
+## File Descriptions and Roles
+
+### 1. Plugin.cs (Required)
+
+**Role**: Main entry point and plugin lifecycle controller
+
+**Purpose**: This is the core file that Dalamud loads when the plugin is enabled. It implements `IDalamudPlugin` and manages the entire plugin lifecycle.
+
+**Key Responsibilities**:
+- Declares Dalamud service dependencies via `[PluginService]` attributes
+- Initializes configuration from saved state or creates new defaults
+- Registers slash commands with the game
+- Creates and manages all UI windows through `WindowSystem`
+- Subscribes to Dalamud UI events (`Draw`, `OpenConfigUi`, `OpenMainUi`)
+- Handles proper cleanup in `Dispose()` to prevent memory leaks
+
+**Dalamud Services Used**:
+| Service | Purpose |
+|---------|---------|
+| `IDalamudPluginInterface` | Core plugin API, config storage, assembly info |
+| `ITextureProvider` | Loading and managing image textures |
+| `ICommandManager` | Registering slash commands |
+| `IClientState` | Game client state (territory, logged-in status) |
+| `IPlayerState` | Local player information (job, level) |
+| `IDataManager` | Access to Lumina game data sheets |
+| `IPluginLog` | Structured logging to Dalamud log window |
+
+**Dependencies**: References `Configuration.cs`, `Windows/ConfigWindow.cs`, `Windows/MainWindow.cs`
+
+---
+
+### 2. Configuration.cs (Required)
+
+**Role**: Persistent user settings storage
+
+**Purpose**: Defines all user-configurable options that persist between game sessions. Implements `IPluginConfiguration` for Dalamud's configuration serialization system.
+
+**Key Features**:
+- `Version` property for configuration migration support
+- Serializable properties for user preferences
+- `Save()` convenience method that calls `PluginInterface.SavePluginConfig()`
+
+**Storage Location**: Dalamud automatically saves this to `%APPDATA%\XIVLauncher\pluginConfigs\SamplePlugin.json`
+
+**Dependencies**: References `Plugin.cs` for access to `PluginInterface`
+
+**Design Pattern**: The `[Serializable]` attribute enables JSON serialization. Properties should have sensible defaults for first-time users.
+
+---
+
+### 3. SamplePlugin.csproj (Required)
+
+**Role**: MSBuild project definition
+
+**Purpose**: Defines how the project is built, including SDK version, dependencies, and content files.
+
+**Key Elements**:
+```xml
+<Project Sdk="Dalamud.NET.Sdk/14.0.1">
+```
+- Uses the Dalamud.NET.Sdk which automatically configures:
+  - Target framework (.NET 10 for Windows)
+  - Dalamud assembly references
+  - Build output configuration
+  - Plugin packaging
+
+**Property Group**:
+| Property | Purpose |
+|----------|---------|
+| `Version` | Plugin version number |
+| `PackageProjectUrl` | Source repository URL |
+| `PackageLicenseExpression` | License identifier |
+| `IsPackable` | Whether to create NuGet package (false for plugins) |
+
+**Content Items**: Defines external assets to include in build output (e.g., `goat.png`)
+
+---
+
+### 4. SamplePlugin.json (Required)
+
+**Role**: Plugin manifest for Dalamud
+
+**Purpose**: Provides metadata that Dalamud displays in the plugin installer and uses for plugin management.
+
+**Required Fields**:
+| Field | Description |
+|-------|-------------|
+| `Author` | Plugin author name |
+| `Name` | Display name shown in plugin list |
+| `Punchline` | Brief one-liner description |
+| `Description` | Detailed description for plugin details view |
+| `ApplicableVersion` | FFXIV version compatibility ("any" or specific version) |
+| `Tags` | Searchable keywords for plugin discovery |
+
+**Note**: Additional optional fields exist for icons, changelogs, and repository URLs. See Dalamud documentation for the complete schema.
+
+---
+
+### 5. packages.lock.json (Generated)
+
+**Role**: NuGet dependency lock file
+
+**Purpose**: Ensures reproducible builds by locking exact dependency versions.
+
+**Key Dependencies**:
+| Package | Purpose |
+|---------|---------|
+| `DalamudPackager` | Build tooling for plugin packaging |
+| `DotNet.ReproducibleBuilds` | Ensures deterministic build output |
+
+**Note**: This file is auto-generated by NuGet restore. Do not edit manually.
+
+---
+
+### 6. Windows/ConfigWindow.cs (Recommended)
+
+**Role**: Settings/configuration UI
+
+**Purpose**: Provides a dedicated window for users to modify plugin settings.
+
+**Key Features**:
+- Inherits from `Window` base class (Dalamud.Interface.Windowing)
+- Implements `IDisposable` for cleanup
+- Uses constant window ID (`###`) for stable ImGui identification
+- Demonstrates `PreDraw()` for dynamic flag modification
+- Shows ImGui checkbox binding to configuration properties
+- Saves configuration immediately on change
+
+**Window Flags Used**:
+- `NoResize`, `NoCollapse`, `NoScrollbar`, `NoScrollWithMouse`
+- Dynamic `NoMove` based on configuration
+
+**Dependencies**: Receives `Plugin` instance for configuration access
+
+---
+
+### 7. Windows/MainWindow.cs (Recommended)
+
+**Role**: Primary plugin UI
+
+**Purpose**: The main interface users interact with for plugin functionality.
+
+**Key Features**:
+- Uses hidden window ID (`##`) for stable identification with visible title
+- Defines size constraints (minimum/maximum)
+- Demonstrates multiple Dalamud service interactions:
+  - `ITextureProvider` for image display
+  - `IPlayerState` for character information
+  - `IClientState` for territory data
+  - `IDataManager` for Lumina Excel sheet queries
+- Uses `ImRaii` for automatic ImGui state management
+- Shows graceful handling of invalid states (not logged in, invalid job)
+
+**Dependencies**: Receives `Plugin` instance and image path
+
+---
+
+## File Naming Conventions
+
+| Pattern | Convention | Example |
+|---------|------------|---------|
+| Main plugin class | `Plugin.cs` | Always named Plugin.cs |
+| Configuration | `Configuration.cs` | Single configuration file |
+| Project file | `{PluginName}.csproj` | `SamplePlugin.csproj` |
+| Manifest | `{PluginName}.json` | `SamplePlugin.json` |
+| Window classes | `{Purpose}Window.cs` | `ConfigWindow.cs`, `MainWindow.cs` |
+
+**Namespace Convention**:
+- Root: `{PluginName}` (e.g., `SamplePlugin`)
+- Windows: `{PluginName}.Windows` (e.g., `SamplePlugin.Windows`)
+
+---
+
+## Required vs Optional Files
+
+### Required Files (Minimum Viable Plugin)
+| File | Reason |
+|------|--------|
+| `Plugin.cs` | Entry point implementing `IDalamudPlugin` |
+| `{Name}.csproj` | Build configuration |
+| `{Name}.json` | Plugin manifest for Dalamud |
+
+### Highly Recommended Files
+| File | Reason |
+|------|--------|
+| `Configuration.cs` | User settings persistence |
+| `Windows/` directory | Organized UI code |
+
+### Generated/Optional Files
+| File | Reason |
+|------|--------|
+| `packages.lock.json` | Reproducible builds (auto-generated) |
+| Asset files (images, etc.) | Only if plugin needs them |
+
+---
+
+## File Dependencies and References
+
+```
+                    ┌─────────────────┐
+                    │  SamplePlugin   │
+                    │     .csproj     │
+                    │  (Build Config) │
+                    └────────┬────────┘
+                             │ builds
+                             ▼
+┌─────────────┐      ┌───────────────┐      ┌─────────────────┐
+│ SamplePlugin│      │   Plugin.cs   │      │ Configuration.cs│
+│    .json    │◄─────│  (Entry Point)│─────►│   (Settings)    │
+│ (Manifest)  │      └───────┬───────┘      └────────┬────────┘
+└─────────────┘              │                       │
+                             │ creates               │ used by
+                             ▼                       ▼
+              ┌──────────────────────────────────────────┐
+              │            Windows/                      │
+              │  ┌────────────────┐ ┌────────────────┐  │
+              │  │ ConfigWindow.cs│ │  MainWindow.cs │  │
+              │  │  (Settings UI) │ │   (Main UI)    │  │
+              │  └────────────────┘ └────────────────┘  │
+              └──────────────────────────────────────────┘
+```
+
+**Dependency Flow**:
+1. `Plugin.cs` loads `Configuration.cs` via `PluginInterface.GetPluginConfig()`
+2. `Plugin.cs` instantiates window classes, passing itself or configuration
+3. Window classes reference configuration for settings display/modification
+4. `Configuration.cs` references `Plugin.PluginInterface` for saving
+5. `SamplePlugin.json` is read by Dalamud at load time (no code reference)
+
+---
+
+## Recommended Directory Structure for New Plugins
+
+### Minimal Plugin
+```
+MyPlugin/
+├── Configuration.cs
+├── Plugin.cs
+├── MyPlugin.csproj
+└── MyPlugin.json
+```
+
+### Standard Plugin (Recommended)
+```
+MyPlugin/
+├── Configuration.cs
+├── Plugin.cs
+├── MyPlugin.csproj
+├── MyPlugin.json
+└── Windows/
+    ├── ConfigWindow.cs
+    └── MainWindow.cs
+```
+
+### Complex Plugin
+```
+MyPlugin/
+├── Configuration.cs
+├── Plugin.cs
+├── MyPlugin.csproj
+├── MyPlugin.json
+├── packages.lock.json
+├── Windows/
+│   ├── ConfigWindow.cs
+│   ├── MainWindow.cs
+│   └── {Feature}Window.cs
+├── Services/
+│   └── {Feature}Service.cs
+├── Data/
+│   └── {DataModel}.cs
+├── Handlers/
+│   └── {Event}Handler.cs
+└── Assets/
+    └── images/
+```
+
+---
+
+## Best Practices Derived from SamplePlugin
+
+### 1. Service Injection
+```csharp
+[PluginService] internal static IPluginLog Log { get; private set; } = null!;
+```
+Use `[PluginService]` attribute for automatic dependency injection of Dalamud services.
+
+### 2. Proper Disposal
+Always implement `IDisposable` and clean up:
+- Unsubscribe from events
+- Remove windows from WindowSystem
+- Dispose individual windows
+- Remove command handlers
+
+### 3. Configuration Defaults
+```csharp
+public bool SomeProperty { get; set; } = true;  // Default value
+```
+Always provide sensible defaults for all configuration properties.
+
+### 4. Window ID Stability
+```csharp
+// Constant ID (title can change, ID stays same)
+: base("Dynamic Title###ConstantID")
+
+// Hidden ID (visible title, hidden ID for ImGui)
+: base("Visible Title##HiddenPart")
+```
+
+### 5. Graceful State Handling
+```csharp
+if (!playerState.IsLoaded)
+{
+    ImGui.Text("Player not logged in.");
+    return;
+}
+```
+Always check for invalid states before accessing game data.
+
+### 6. ImRaii for Resource Management
+```csharp
+using (var child = ImRaii.Child("Name", Vector2.Zero, true))
+{
+    if (child.Success) { /* draw */ }
+}
+```
+Use `ImRaii` wrappers for automatic ImGui state cleanup.
+
+---
+
+## Additional Resources
+
+- [Dalamud Plugin Development Documentation](https://dalamud.dev/plugin-development/)
+- [Official SamplePlugin Repository](https://github.com/goatcorp/SamplePlugin)
+- [ImGui Documentation](https://github.com/ocornut/imgui)
+- [Lumina (Game Data) Documentation](https://github.com/NotAdam/Lumina)
