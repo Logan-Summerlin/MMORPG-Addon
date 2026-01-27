@@ -18,12 +18,14 @@ Three parallel analyst reviews were conducted on the DailiesChecklist plugin fol
 
 ## Issues Requiring Fixes
 
-### Critical (3)
+### Critical (5)
 | ID | Issue | File | Impact |
 |----|-------|------|--------|
 | C1 | Thread safety in debounced save | PersistenceService.cs:171-185 | Data corruption risk |
 | C2 | Static Plugin reference in Config.Save() | Configuration.cs:134 | Crash on early init |
 | C3 | Initialization order race condition | Plugin.cs:185-193 | Detector null refs |
+| C4 | Silent exception swallowing (empty catch) | MainWindow.cs:437-439 | Hides bugs, impossible to debug |
+| C5 | Dead code - unused EnsureUtc method | ResetService.cs:363-378 | Maintenance burden, incomplete refactor |
 
 ### High (7)
 | ID | Issue | File |
@@ -42,7 +44,7 @@ Three parallel analyst reviews were conducted on the DailiesChecklist plugin fol
 | MS1 | Path not validated for traversal attacks | PersistenceService.cs:89-99 |
 | MS2 | Character data stored without user disclosure | ChecklistState.cs:54-59 |
 
-### Medium - Functionality (10)
+### Medium - Functionality (9)
 | ID | Issue | File |
 |----|-------|------|
 | MF1 | Static mutable state in UIHelpers | UIHelpers.cs:397 |
@@ -52,9 +54,8 @@ Three parallel analyst reviews were conducted on the DailiesChecklist plugin fol
 | MF5 | FeatureFlags not versioned (new flags default false) | Configuration.cs:11-21 |
 | MF6 | Global using alias `Log` causes confusion | Global.cs:46 |
 | MF7 | No cancellation token support in services | Multiple services |
-| MF8 | Empty catch block swallows errors | MainWindow.cs:432-439 |
-| MF9 | MaximumSize uses float.MaxValue | MainWindow.cs:69-73 |
-| MF10 | ImRaii.Child success check missing log | SettingsWindow.cs:262 |
+| MF8 | MaximumSize uses float.MaxValue | MainWindow.cs:69-73 |
+| MF9 | ImRaii.Child success check missing log | SettingsWindow.cs:262 |
 
 ### Medium - Style/Syntax (15)
 | ID | Issue | File |
@@ -78,7 +79,6 @@ Three parallel analyst reviews were conducted on the DailiesChecklist plugin fol
 ### Dead Code (Remove)
 | Item | File |
 |------|------|
-| Unused `EnsureUtc` method | ResetService.cs:363-378 |
 | Unused `_framework` field | BeastTribeDetector.cs:37 |
 | Unused `Log` type alias | Global.cs:46 |
 
@@ -92,14 +92,15 @@ Three parallel analyst reviews were conducted on the DailiesChecklist plugin fol
 
 ## Next Steps
 
-1. Implement Critical fixes (C1-C3)
+1. Implement Critical fixes (C1-C5)
 2. Implement High fixes (H1-H7)
-3. Address code quality issues
-4. Manual testing per test scenarios
-5. Final review before distribution
+3. Address Medium issues (MS1-MS2, MF1-MF9, MSS1-MSS15)
+4. Remove Dead Code items
+5. Manual testing per test scenarios
+6. Final review before distribution
 
 ---
 
-**Issue Totals:** 3 Critical, 7 High, 27 Medium, 3 Dead Code items
+**Issue Totals:** 5 Critical, 7 High, 26 Medium, 2 Dead Code items
 
 *Report compiled from 3 analyst reviews (~6000 lines analyzed)*
