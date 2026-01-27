@@ -541,11 +541,11 @@ public sealed class Plugin : IDalamudPlugin
                 Configuration.FeatureFlags.EnableRouletteDetection);
 
             DetectionService.AddDetector(
-                new CactpotDetector(Log, ClientState, Framework, GameGui, AddonLifecycle),
+                new CactpotDetector(Log, ClientState, AddonLifecycle),
                 Configuration.FeatureFlags.EnableCactpotDetection);
 
             DetectionService.AddDetector(
-                new BeastTribeDetector(Log, ClientState, Framework),
+                new BeastTribeDetector(Log, ClientState),
                 Configuration.FeatureFlags.EnableBeastTribeDetection);
         }
         catch (Exception ex)

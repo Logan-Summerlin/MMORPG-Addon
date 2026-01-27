@@ -34,7 +34,6 @@ public sealed class BeastTribeDetector : ITaskDetector
 {
     private readonly IPluginLog _log;
     private readonly IClientState _clientState;
-    private readonly IFramework _framework;
 
     private readonly object _lock = new();
     private bool _isInitialized;
@@ -67,13 +66,11 @@ public sealed class BeastTribeDetector : ITaskDetector
     /// </summary>
     /// <param name="log">The plugin log service.</param>
     /// <param name="clientState">The Dalamud client state service.</param>
-    /// <param name="framework">The Dalamud framework service.</param>
     /// <exception cref="ArgumentNullException">Thrown if any parameter is null.</exception>
-    public BeastTribeDetector(IPluginLog log, IClientState clientState, IFramework framework)
+    public BeastTribeDetector(IPluginLog log, IClientState clientState)
     {
         _log = log ?? throw new ArgumentNullException(nameof(log));
         _clientState = clientState ?? throw new ArgumentNullException(nameof(clientState));
-        _framework = framework ?? throw new ArgumentNullException(nameof(framework));
 
         _allowancesUsed = 0;
     }

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Numerics;
 using ImGuiNET;
 
@@ -369,7 +370,12 @@ public static class UIHelpers
         string confirmText = "Confirm",
         string cancelText = "Cancel")
     {
-        if (ImGui.BeginPopupModal(id, ref _popupOpen, ImGuiWindowFlags.AlwaysAutoResize))
+        if (!_popupOpen.TryGetValue(id, out var popupOpen))
+        {
+            popupOpen = true;
+        }
+
+        if (ImGui.BeginPopupModal(id, ref popupOpen, ImGuiWindowFlags.AlwaysAutoResize))
         {
             ImGui.Text(message);
             ImGui.Spacing();
@@ -391,10 +397,12 @@ public static class UIHelpers
 
             ImGui.EndPopup();
         }
+
+        _popupOpen[id] = popupOpen;
     }
 
     // Helper for popup state
-    private static bool _popupOpen = true;
+    private static readonly Dictionary<string, bool> _popupOpen = new(StringComparer.Ordinal);
 
     /// <summary>
     /// Opens a confirmation popup by ID.
@@ -402,7 +410,7 @@ public static class UIHelpers
     /// <param name="id">The popup ID to open.</param>
     public static void OpenConfirmationPopup(string id)
     {
-        _popupOpen = true;
+        _popupOpen[id] = true;
         ImGui.OpenPopup(id);
     }
 

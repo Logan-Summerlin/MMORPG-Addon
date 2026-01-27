@@ -33,8 +33,6 @@ public sealed class CactpotDetector : ITaskDetector
 {
     private readonly IPluginLog _log;
     private readonly IClientState _clientState;
-    private readonly IFramework _framework;
-    private readonly IGameGui _gameGui;
     private readonly IAddonLifecycle _addonLifecycle;
 
     private readonly Dictionary<string, int> _ticketCounts;
@@ -43,6 +41,10 @@ public sealed class CactpotDetector : ITaskDetector
     private bool _isDisposed;
     private bool _isInGoldSaucer;
     private bool _addonListenersRegistered;
+    private nint _lastMiniCactpotAddon;
+    private DateTime _lastMiniCactpotRecordedUtc = DateTime.MinValue;
+
+    private static readonly TimeSpan MiniCactpotDuplicateWindow = TimeSpan.FromSeconds(2);
 
     // Gold Saucer territory type ID
     private const ushort GoldSaucerTerritoryId = 144;
@@ -78,21 +80,15 @@ public sealed class CactpotDetector : ITaskDetector
     /// </summary>
     /// <param name="log">The plugin log service.</param>
     /// <param name="clientState">The Dalamud client state service.</param>
-    /// <param name="framework">The Dalamud framework service for update events.</param>
-    /// <param name="gameGui">The Dalamud game GUI service for monitoring addon state.</param>
     /// <param name="addonLifecycle">The Dalamud addon lifecycle service for tracking addon events.</param>
     /// <exception cref="ArgumentNullException">Thrown if any parameter is null.</exception>
     public CactpotDetector(
         IPluginLog log,
         IClientState clientState,
-        IFramework framework,
-        IGameGui gameGui,
         IAddonLifecycle addonLifecycle)
     {
         _log = log ?? throw new ArgumentNullException(nameof(log));
         _clientState = clientState ?? throw new ArgumentNullException(nameof(clientState));
-        _framework = framework ?? throw new ArgumentNullException(nameof(framework));
-        _gameGui = gameGui ?? throw new ArgumentNullException(nameof(gameGui));
         _addonLifecycle = addonLifecycle ?? throw new ArgumentNullException(nameof(addonLifecycle));
 
         _ticketCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
@@ -295,6 +291,24 @@ public sealed class CactpotDetector : ITaskDetector
 
         try
         {
+            var now = DateTime.UtcNow;
+            var addonPtr = args.Addon;
+            if (addonPtr != nint.Zero)
+            {
+                if (addonPtr == _lastMiniCactpotAddon && now - _lastMiniCactpotRecordedUtc < MiniCactpotDuplicateWindow)
+                {
+                    _log.Debug("Mini Cactpot addon reopened; skipping duplicate ticket count.");
+                    return;
+                }
+            }
+            else if (now - _lastMiniCactpotRecordedUtc < MiniCactpotDuplicateWindow)
+            {
+                _log.Debug("Mini Cactpot addon reopened quickly; skipping duplicate ticket count.");
+                return;
+            }
+
+            _lastMiniCactpotAddon = addonPtr;
+            _lastMiniCactpotRecordedUtc = now;
             _log.Debug("Mini Cactpot result addon detected - recording ticket play.");
             RecordMiniCactpotPlay();
         }
@@ -468,6 +482,9 @@ public sealed class CactpotDetector : ITaskDetector
     {
         lock (_lock)
         {
+            _lastMiniCactpotAddon = nint.Zero;
+            _lastMiniCactpotRecordedUtc = DateTime.MinValue;
+
             // Always reset daily (Mini Cactpot)
             if (_ticketCounts["mini_cactpot"] > 0)
             {
