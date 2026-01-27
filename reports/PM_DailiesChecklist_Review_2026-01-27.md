@@ -36,11 +36,51 @@ Three parallel analyst reviews were conducted on the DailiesChecklist plugin fol
 | H6 | Null check race in Plugin.Dispose() | Plugin.cs:282-293 |
 | H7 | Event handler cleanup on exception | DetectionService.cs:113-149 |
 
-### Code Quality (Selected)
-- Dead code: Unused `EnsureUtc` method, unused `_framework` field, unused `Log` alias
-- TaskRegistry creates 27+ objects per property access (needs caching)
-- Silent exception swallowing in MainWindow.cs:437-439
-- Inconsistent namespace syntax in Enums.cs
+### Medium - Security (2)
+| ID | Issue | File |
+|----|-------|------|
+| MS1 | Path not validated for traversal attacks | PersistenceService.cs:89-99 |
+| MS2 | Character data stored without user disclosure | ChecklistState.cs:54-59 |
+
+### Medium - Functionality (10)
+| ID | Issue | File |
+|----|-------|------|
+| MF1 | Static mutable state in UIHelpers | UIHelpers.cs:397 |
+| MF2 | Unused constructor params (_gameGui, _framework) | CactpotDetector, BeastTribeDetector |
+| MF3 | Inefficient GetTaskById creates full list | TaskRegistry.cs:459-463 |
+| MF4 | IDalamudConfigProvider constructor never used | PersistenceService.cs:77-81 |
+| MF5 | FeatureFlags not versioned (new flags default false) | Configuration.cs:11-21 |
+| MF6 | Global using alias `Log` causes confusion | Global.cs:46 |
+| MF7 | No cancellation token support in services | Multiple services |
+| MF8 | Empty catch block swallows errors | MainWindow.cs:432-439 |
+| MF9 | MaximumSize uses float.MaxValue | MainWindow.cs:69-73 |
+| MF10 | ImRaii.Child success check missing log | SettingsWindow.cs:262 |
+
+### Medium - Style/Syntax (15)
+| ID | Issue | File |
+|----|-------|------|
+| MSS1 | Redundant using directives (global imports) | Multiple files |
+| MSS2 | Unused event handler parameters | Detector files |
+| MSS3 | Unnecessary `System.StringSplitOptions` qualification | Plugin.cs:322 |
+| MSS4 | Unnecessary `System.Collections.Generic.List` qualification | PersistenceService.cs:332 |
+| MSS5 | Inconsistent object init (`new object()` vs `new()`) | Multiple files |
+| MSS6 | Redundant bool initialization `= false` | ChecklistTask.cs:49,55 |
+| MSS7 | Redundant int initialization `= 0` | Configuration.cs:34 |
+| MSS8 | Unnecessary else after return | ResetService.cs:283-291 |
+| MSS9 | Disposed flag set but never checked before ops | ResetService.cs:69,380-390 |
+| MSS10 | Missing null validation in Clone() | ChecklistTask.cs:85-103 |
+| MSS11 | Potential NullReferenceException | MainWindow.cs:42,66 |
+| MSS12 | Unused `_isInGoldSaucer` field | CactpotDetector.cs:44 |
+| MSS13 | Inconsistent null check patterns (Empty vs WhiteSpace) | Multiple files |
+| MSS14 | Magic numbers in UI code (350f, 18f, 100) | UIHelpers.cs |
+| MSS15 | Text() vs TextUnformatted() for dynamic strings | MainWindow.cs:330,334 |
+
+### Dead Code (Remove)
+| Item | File |
+|------|------|
+| Unused `EnsureUtc` method | ResetService.cs:363-378 |
+| Unused `_framework` field | BeastTribeDetector.cs:37 |
+| Unused `Log` type alias | Global.cs:46 |
 
 ## Recommended Test Scenarios
 
@@ -59,5 +99,7 @@ Three parallel analyst reviews were conducted on the DailiesChecklist plugin fol
 5. Final review before distribution
 
 ---
+
+**Issue Totals:** 3 Critical, 7 High, 27 Medium, 3 Dead Code items
 
 *Report compiled from 3 analyst reviews (~6000 lines analyzed)*
