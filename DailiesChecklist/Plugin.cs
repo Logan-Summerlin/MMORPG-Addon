@@ -151,9 +151,9 @@ public sealed class Plugin : IDalamudPlugin
         ResetService = new ResetService();
         Log.Debug("ResetService initialized.");
 
-        // 3. Create PersistenceService (using file path approach for simplicity)
+        // 3. Create PersistenceService (using file path approach for simplicity, with logger for diagnostics)
         var configPath = Path.Combine(PluginInterface.ConfigDirectory.FullName, ChecklistStateFileName);
-        PersistenceService = new PersistenceService(configPath);
+        PersistenceService = new PersistenceService(configPath, Log);
         Log.Debug("PersistenceService initialized with path: {Path}", configPath);
 
         // 4. Load ChecklistState from persistence

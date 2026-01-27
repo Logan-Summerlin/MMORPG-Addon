@@ -5,6 +5,7 @@ using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
 using DailiesChecklist.Models;
 using DailiesChecklist.Services;
+using DailiesChecklist.Utils;
 using ImGuiNET;
 
 namespace DailiesChecklist.Windows;
@@ -30,15 +31,17 @@ namespace DailiesChecklist.Windows;
 /// </summary>
 public class MainWindow : Window, IDisposable
 {
-    private readonly Plugin plugin;
-    private readonly Configuration configuration;
-    private readonly ResetService? resetService;
-    private readonly Action? onStateChanged;
+    private readonly Plugin _plugin;
+    private readonly Configuration _configuration;
+    private readonly ResetService? _resetService;
+    private readonly Action? _onStateChanged;
 
-    // Checklist state - managed externally via dependency injection
-    private ChecklistState checklistState;
+    /// <summary>
+    /// Checklist state - managed externally via dependency injection.
+    /// </summary>
+    private ChecklistState _checklistState;
 
-    private bool disposed = false;
+    private bool _disposed;
 
     /// <summary>
     /// Initializes the main checklist window with dependency injection.
@@ -54,13 +57,13 @@ public class MainWindow : Window, IDisposable
         Action? onStateChanged = null)
         : base("Dailies Checklist###DailiesChecklistMain", ImGuiWindowFlags.None)
     {
-        this.plugin = plugin ?? throw new ArgumentNullException(nameof(plugin));
-        this.configuration = plugin.Configuration;
-        this.resetService = resetService;
-        this.onStateChanged = onStateChanged;
+        _plugin = plugin ?? throw new ArgumentNullException(nameof(plugin));
+        _configuration = plugin.Configuration;
+        _resetService = resetService;
+        _onStateChanged = onStateChanged;
 
         // Use provided state or create default for backward compatibility
-        this.checklistState = checklistState ?? CreateDefaultState();
+        _checklistState = checklistState ?? CreateDefaultState();
 
         // Window size constraints per requirements: MinimumSize 300x200, resizable
         SizeConstraints = new WindowSizeConstraints
@@ -123,10 +126,10 @@ public class MainWindow : Window, IDisposable
     /// </summary>
     public void Dispose()
     {
-        if (disposed)
+        if (_disposed)
             return;
 
-        disposed = true;
+        _disposed = true;
         // No event handlers to clean up in this window
         // All state is managed externally
     }
@@ -137,7 +140,7 @@ public class MainWindow : Window, IDisposable
     public override void PreDraw()
     {
         // Apply window lock setting before Draw() is called
-        if (configuration.WindowLocked)
+        if (_configuration.WindowLocked)
         {
             Flags |= ImGuiWindowFlags.NoMove;
         }
@@ -147,9 +150,9 @@ public class MainWindow : Window, IDisposable
         }
 
         // Apply opacity setting
-        if (configuration.WindowOpacity < 1.0f)
+        if (_configuration.WindowOpacity < 1.0f)
         {
-            ImGui.SetNextWindowBgAlpha(configuration.WindowOpacity);
+            ImGui.SetNextWindowBgAlpha(_configuration.WindowOpacity);
         }
     }
 
@@ -174,23 +177,42 @@ public class MainWindow : Window, IDisposable
     }
 
     /// <summary>
-    /// Draws a collapsible section for a task category with Reset All button.
+    /// Draws a collapsible section for a task category with progress indicator and Reset All button.
     /// </summary>
     private void DrawCategorySection(TaskCategory category, string headerLabel)
     {
         // Get tasks for this category that are enabled
         var categoryTasks = GetTasksForCategory(category);
 
-        // Use ImGui.CollapsingHeader with AllowOverlap so we can add the Reset All button
+        // Calculate completion stats for progress indicator
+        var completedCount = 0;
+        var totalCount = categoryTasks.Count;
+        foreach (var task in categoryTasks)
+        {
+            if (task.IsCompleted)
+                completedCount++;
+        }
+
+        // Use ImGui.CollapsingHeader with AllowOverlap so we can add the progress and Reset All button
         var isOpen = ImGui.CollapsingHeader(
             headerLabel,
             ImGuiTreeNodeFlags.DefaultOpen | ImGuiTreeNodeFlags.AllowOverlap);
 
-        // Draw Reset All button on the same line as the header
-        DrawResetAllButton(category, headerLabel);
+        // Draw progress indicator and Reset All button on the same line as the header
+        DrawHeaderControls(category, headerLabel, completedCount, totalCount);
 
         if (isOpen)
         {
+            // Show progress bar when section is open and has tasks
+            if (totalCount > 0 && _configuration.ShowProgressBars)
+            {
+                using (ImRaii.PushIndent(10f))
+                {
+                    UIHelpers.ProgressBar(completedCount, totalCount, -1f, 14f, true);
+                    ImGui.Spacing();
+                }
+            }
+
             // Use ImRaii for automatic indent cleanup
             using (ImRaii.PushIndent(10f))
             {
@@ -210,22 +232,31 @@ public class MainWindow : Window, IDisposable
     }
 
     /// <summary>
-    /// Draws the Reset All button aligned to the right of the header.
+    /// Draws the header controls (progress text and Reset All button) aligned to the right.
     /// </summary>
-    private void DrawResetAllButton(TaskCategory category, string headerLabel)
+    private void DrawHeaderControls(TaskCategory category, string headerLabel, int completedCount, int totalCount)
     {
-        // Calculate button position to align right
-        var buttonLabel = "Reset All";
-        var buttonWidth = ImGui.CalcTextSize(buttonLabel).X + ImGui.GetStyle().FramePadding.X * 2;
+        // Calculate positions for progress text and button
+        var resetButtonLabel = "Reset";
+        var resetButtonWidth = ImGui.CalcTextSize(resetButtonLabel).X + ImGui.GetStyle().FramePadding.X * 2;
+        var progressText = $"{completedCount}/{totalCount}";
+        var progressWidth = ImGui.CalcTextSize(progressText).X;
+        var spacing = ImGui.GetStyle().ItemSpacing.X;
         var availableWidth = ImGui.GetContentRegionAvail().X;
 
-        // Position button to the right of the header
-        ImGui.SameLine(availableWidth - buttonWidth + ImGui.GetStyle().ItemSpacing.X);
+        // Position for progress text (left of button)
+        var progressPosX = availableWidth - resetButtonWidth - progressWidth - spacing * 2 + ImGui.GetStyle().ItemSpacing.X;
 
-        // Use unique ID to avoid conflicts
+        // Draw progress text
+        ImGui.SameLine(progressPosX);
+        var progressColor = completedCount >= totalCount ? UIHelpers.Colors.Success : UIHelpers.Colors.TextDim;
+        ImGui.TextColored(progressColor, progressText);
+
+        // Draw Reset All button
+        ImGui.SameLine();
         using (ImRaii.PushId($"ResetAll_{category}"))
         {
-            if (ImGui.SmallButton(buttonLabel))
+            if (ImGui.SmallButton(resetButtonLabel))
             {
                 ResetCategory(category);
             }
@@ -242,10 +273,10 @@ public class MainWindow : Window, IDisposable
     /// </summary>
     private void ResetCategory(TaskCategory category)
     {
-        if (checklistState?.Tasks == null)
+        if (_checklistState?.Tasks == null)
             return;
 
-        foreach (var task in checklistState.Tasks)
+        foreach (var task in _checklistState.Tasks)
         {
             if (task.Category == category)
             {
@@ -258,7 +289,7 @@ public class MainWindow : Window, IDisposable
         Plugin.Log.Information($"Reset all {category} tasks");
 
         // Notify that state has changed (for persistence)
-        onStateChanged?.Invoke();
+        _onStateChanged?.Invoke();
     }
 
     /// <summary>
@@ -284,7 +315,7 @@ public class MainWindow : Window, IDisposable
             ImGui.SameLine();
 
             // Task text: "Location - Task Name"
-            var taskText = configuration.ShowLocations && !string.IsNullOrEmpty(task.Location)
+            var taskText = _configuration.ShowLocations && !string.IsNullOrEmpty(task.Location)
                 ? $"{task.Location} - {task.Name}"
                 : task.Name;
 
@@ -299,24 +330,32 @@ public class MainWindow : Window, IDisposable
             }
 
             // Auto-detect indicator: show asterisk (*) for auto-detected tasks
-            if (configuration.ShowAutoDetectIndicators && task.Detection != DetectionType.Manual)
+            if (_configuration.ShowAutoDetectIndicators && task.Detection != DetectionType.Manual)
             {
                 ImGui.SameLine();
                 if (task.IsManuallySet)
                 {
                     // Manually overridden auto-detected task
-                    ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), "(manual)");
+                    ImGui.TextColored(UIHelpers.Colors.ManualOverride, "(manual)");
                 }
                 else if (task.IsCompleted && task.Detection == DetectionType.AutoDetected)
                 {
                     // Auto-detected as complete
-                    ImGui.TextColored(new Vector4(0.4f, 0.8f, 0.4f, 1.0f), "*");
+                    ImGui.TextColored(UIHelpers.Colors.AutoDetect, "*");
                 }
                 else if (task.Detection == DetectionType.AutoDetected || task.Detection == DetectionType.Hybrid)
                 {
                     // Can be auto-detected but not yet
-                    ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1.0f), "*");
+                    ImGui.TextColored(UIHelpers.Colors.Subtle, "*");
                 }
+            }
+
+            // Show count progress for multi-count tasks (e.g., Mini Cactpot 2/3)
+            if (task.MaxCount > 1)
+            {
+                ImGui.SameLine();
+                var countColor = task.CurrentCount >= task.MaxCount ? UIHelpers.Colors.Success : UIHelpers.Colors.TextDim;
+                ImGui.TextColored(countColor, $"({task.CurrentCount}/{task.MaxCount})");
             }
 
             // Tooltip with task description
@@ -350,7 +389,7 @@ public class MainWindow : Window, IDisposable
         Plugin.Log.Debug($"Task '{task.Name}' toggled to {(task.IsCompleted ? "completed" : "incomplete")}");
 
         // Notify that state has changed (for persistence)
-        onStateChanged?.Invoke();
+        _onStateChanged?.Invoke();
     }
 
     /// <summary>
@@ -361,7 +400,7 @@ public class MainWindow : Window, IDisposable
         // Settings button on the left
         if (ImGui.Button("Settings"))
         {
-            plugin.ToggleSettingsUI();
+            _plugin.ToggleSettingsUI();
         }
 
         // Last reset time on the right
@@ -383,11 +422,11 @@ public class MainWindow : Window, IDisposable
     private string GetLastResetText()
     {
         // Use ResetService if available for accurate time until next reset
-        if (resetService != null)
+        if (_resetService != null)
         {
             try
             {
-                var timeUntilReset = resetService.GetFormattedTimeUntilReset(ResetType.Daily);
+                var timeUntilReset = _resetService.GetFormattedTimeUntilReset(ResetType.Daily);
                 return $"Next reset: {timeUntilReset}";
             }
             catch
@@ -397,11 +436,11 @@ public class MainWindow : Window, IDisposable
         }
 
         // Fallback: Calculate time since last reset manually
-        if (checklistState == null)
+        if (_checklistState == null)
             return "Last reset: unknown";
 
         // Calculate time since last daily reset
-        var timeSinceReset = DateTime.UtcNow - checklistState.LastDailyReset;
+        var timeSinceReset = DateTime.UtcNow - _checklistState.LastDailyReset;
 
         // Handle negative time (reset hasn't happened yet today)
         if (timeSinceReset.TotalSeconds < 0)
@@ -437,10 +476,10 @@ public class MainWindow : Window, IDisposable
     {
         var result = new List<ChecklistTask>();
 
-        if (checklistState?.Tasks == null)
+        if (_checklistState?.Tasks == null)
             return result;
 
-        foreach (var task in checklistState.Tasks)
+        foreach (var task in _checklistState.Tasks)
         {
             if (task.Category == category && task.IsEnabled)
             {
@@ -458,7 +497,7 @@ public class MainWindow : Window, IDisposable
     /// Gets the current checklist state.
     /// Used by other components to access task data.
     /// </summary>
-    public ChecklistState GetChecklistState() => checklistState;
+    public ChecklistState GetChecklistState() => _checklistState;
 
     /// <summary>
     /// Sets the checklist state from external source.
@@ -468,7 +507,7 @@ public class MainWindow : Window, IDisposable
     {
         if (state != null)
         {
-            checklistState = state;
+            _checklistState = state;
         }
     }
 }
