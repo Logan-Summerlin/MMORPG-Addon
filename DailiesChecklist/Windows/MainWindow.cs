@@ -196,7 +196,7 @@ public class MainWindow : Window, IDisposable
         // Use ImGui.CollapsingHeader with AllowOverlap so we can add the progress and Reset All button
         var isOpen = ImGui.CollapsingHeader(
             headerLabel,
-            ImGuiTreeNodeFlags.DefaultOpen | ImGuiTreeNodeFlags.AllowOverlap);
+            GetCategoryHeaderFlags(category));
 
         // Draw progress indicator and Reset All button on the same line as the header
         DrawHeaderControls(category, headerLabel, completedCount, totalCount);
@@ -278,11 +278,12 @@ public class MainWindow : Window, IDisposable
 
         foreach (var task in _checklistState.Tasks)
         {
-            if (task.Category == category)
+            if (IsTaskInCategory(task, category))
             {
                 task.IsCompleted = false;
                 task.IsManuallySet = false;
                 task.CompletedAt = null;
+                task.CurrentCount = 0;
             }
         }
 
@@ -385,6 +386,10 @@ public class MainWindow : Window, IDisposable
         task.IsCompleted = !task.IsCompleted;
         task.IsManuallySet = true;
         task.CompletedAt = task.IsCompleted ? DateTime.UtcNow : null;
+        if (task.MaxCount > 1)
+        {
+            task.CurrentCount = task.IsCompleted ? task.MaxCount : 0;
+        }
 
         Plugin.Log.Debug($"Task '{task.Name}' toggled to {(task.IsCompleted ? "completed" : "incomplete")}");
 
@@ -481,7 +486,7 @@ public class MainWindow : Window, IDisposable
 
         foreach (var task in _checklistState.Tasks)
         {
-            if (task.Category == category && task.IsEnabled)
+            if (IsTaskInCategory(task, category) && task.IsEnabled)
             {
                 result.Add(task);
             }
@@ -509,5 +514,30 @@ public class MainWindow : Window, IDisposable
         {
             _checklistState = state;
         }
+    }
+
+    private bool IsTaskInCategory(ChecklistTask task, TaskCategory category)
+    {
+        return category == TaskCategory.Daily
+            ? task.Category == TaskCategory.Daily || task.Category == TaskCategory.GrandCompany
+            : task.Category == category;
+    }
+
+    private ImGuiTreeNodeFlags GetCategoryHeaderFlags(TaskCategory category)
+    {
+        var flags = ImGuiTreeNodeFlags.AllowOverlap;
+        var defaultOpen = category switch
+        {
+            TaskCategory.Daily => !_configuration.CollapseDailyByDefault,
+            TaskCategory.Weekly => !_configuration.CollapseWeeklyByDefault,
+            _ => true
+        };
+
+        if (defaultOpen)
+        {
+            flags |= ImGuiTreeNodeFlags.DefaultOpen;
+        }
+
+        return flags;
     }
 }
