@@ -21,25 +21,36 @@ public class SettingsWindow : Window, IDisposable
 {
     private readonly Plugin plugin;
     private readonly Configuration configuration;
+    private readonly Action? onStateChanged;
 
-    // Cached task list for the settings UI
+    // Reference to external checklist state (if provided via DI)
+    private ChecklistState? externalState;
+
+    // Cached task list for the settings UI (fallback when no external state)
     private List<ChecklistTask> taskList;
 
     private bool disposed = false;
 
     /// <summary>
-    /// Initializes the settings window.
+    /// Initializes the settings window with dependency injection.
     /// </summary>
     /// <param name="plugin">Reference to the main plugin instance.</param>
-    public SettingsWindow(Plugin plugin)
+    /// <param name="checklistState">Optional checklist state for task enable/disable. If null, creates default.</param>
+    /// <param name="onStateChanged">Optional callback invoked when state changes (for persistence).</param>
+    public SettingsWindow(
+        Plugin plugin,
+        ChecklistState? checklistState = null,
+        Action? onStateChanged = null)
         : base("Dailies Checklist Settings###DailiesChecklistSettings",
             ImGuiWindowFlags.NoCollapse)
     {
         this.plugin = plugin ?? throw new ArgumentNullException(nameof(plugin));
         this.configuration = plugin.Configuration;
+        this.onStateChanged = onStateChanged;
+        this.externalState = checklistState;
 
-        // Initialize task list from registry
-        taskList = TaskRegistry.GetDefaultTasks();
+        // Use external state's tasks or fall back to default tasks
+        taskList = checklistState?.Tasks ?? TaskRegistry.GetDefaultTasks();
 
         // Size constraints for settings window
         SizeConstraints = new WindowSizeConstraints
@@ -297,9 +308,10 @@ public class SettingsWindow : Window, IDisposable
                 if (ImGui.Checkbox(label, ref isEnabled))
                 {
                     task.IsEnabled = isEnabled;
-                    // Note: This updates the local task list. For full persistence,
-                    // the MainWindow's ChecklistState should be synchronized.
                     Plugin.Log.Debug($"Task '{task.Name}' enabled: {isEnabled}");
+
+                    // Notify that state has changed (for persistence)
+                    onStateChanged?.Invoke();
                 }
 
                 // Show tooltip with task description
@@ -336,6 +348,9 @@ public class SettingsWindow : Window, IDisposable
         }
 
         Plugin.Log.Information($"All tasks set to enabled: {enabled}");
+
+        // Notify that state has changed (for persistence)
+        onStateChanged?.Invoke();
     }
 
     /// <summary>
@@ -343,8 +358,23 @@ public class SettingsWindow : Window, IDisposable
     /// </summary>
     private void ResetTasksToDefaults()
     {
-        taskList = TaskRegistry.GetDefaultTasks();
+        var defaultTasks = TaskRegistry.GetDefaultTasks();
+
+        // If we have external state, update it; otherwise update local list
+        if (externalState != null)
+        {
+            externalState.Tasks = defaultTasks;
+            taskList = externalState.Tasks;
+        }
+        else
+        {
+            taskList = defaultTasks;
+        }
+
         Plugin.Log.Information("Tasks reset to defaults");
+
+        // Notify that state has changed (for persistence)
+        onStateChanged?.Invoke();
     }
 
     /// <summary>
@@ -387,5 +417,15 @@ public class SettingsWindow : Window, IDisposable
         {
             taskList = tasks;
         }
+    }
+
+    /// <summary>
+    /// Updates the external state reference.
+    /// Called when the checklist state is replaced (e.g., after loading from persistence).
+    /// </summary>
+    public void SetChecklistState(ChecklistState? state)
+    {
+        externalState = state;
+        taskList = state?.Tasks ?? taskList;
     }
 }
