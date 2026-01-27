@@ -32,25 +32,35 @@ public class MainWindow : Window, IDisposable
 {
     private readonly Plugin plugin;
     private readonly Configuration configuration;
+    private readonly ResetService? resetService;
+    private readonly Action? onStateChanged;
 
-    // Internal checklist state - will be managed externally once full infrastructure is in place
+    // Checklist state - managed externally via dependency injection
     private ChecklistState checklistState;
 
     private bool disposed = false;
 
     /// <summary>
-    /// Initializes the main checklist window.
+    /// Initializes the main checklist window with dependency injection.
     /// </summary>
     /// <param name="plugin">Reference to the main plugin instance.</param>
-    public MainWindow(Plugin plugin)
+    /// <param name="checklistState">The checklist state to display and modify. If null, creates default state.</param>
+    /// <param name="resetService">Optional reset service for time formatting.</param>
+    /// <param name="onStateChanged">Optional callback invoked when state changes (for persistence).</param>
+    public MainWindow(
+        Plugin plugin,
+        ChecklistState? checklistState = null,
+        ResetService? resetService = null,
+        Action? onStateChanged = null)
         : base("Dailies Checklist###DailiesChecklistMain", ImGuiWindowFlags.None)
     {
         this.plugin = plugin ?? throw new ArgumentNullException(nameof(plugin));
         this.configuration = plugin.Configuration;
+        this.resetService = resetService;
+        this.onStateChanged = onStateChanged;
 
-        // Initialize checklist state with default tasks from registry
-        // This will be replaced with proper state management from the plugin
-        InitializeChecklistState();
+        // Use provided state or create default for backward compatibility
+        this.checklistState = checklistState ?? CreateDefaultState();
 
         // Window size constraints per requirements: MinimumSize 300x200, resizable
         SizeConstraints = new WindowSizeConstraints
@@ -65,12 +75,12 @@ public class MainWindow : Window, IDisposable
     }
 
     /// <summary>
-    /// Initializes the checklist state with default tasks.
-    /// This is a temporary implementation until full state management is integrated.
+    /// Creates a default checklist state for backward compatibility.
+    /// Used when no state is provided via dependency injection.
     /// </summary>
-    private void InitializeChecklistState()
+    private static ChecklistState CreateDefaultState()
     {
-        checklistState = new ChecklistState
+        return new ChecklistState
         {
             Tasks = TaskRegistry.GetDefaultTasks(),
             LastDailyReset = GetLastDailyReset(),
@@ -80,6 +90,7 @@ public class MainWindow : Window, IDisposable
 
     /// <summary>
     /// Calculates the last daily reset time (15:00 UTC).
+    /// Used for default state creation.
     /// </summary>
     private static DateTime GetLastDailyReset()
     {
@@ -91,6 +102,7 @@ public class MainWindow : Window, IDisposable
 
     /// <summary>
     /// Calculates the last weekly reset time (Tuesday 08:00 UTC).
+    /// Used for default state creation.
     /// </summary>
     private static DateTime GetLastWeeklyReset()
     {
@@ -244,6 +256,9 @@ public class MainWindow : Window, IDisposable
         }
 
         Plugin.Log.Information($"Reset all {category} tasks");
+
+        // Notify that state has changed (for persistence)
+        onStateChanged?.Invoke();
     }
 
     /// <summary>
@@ -333,6 +348,9 @@ public class MainWindow : Window, IDisposable
         task.CompletedAt = task.IsCompleted ? DateTime.UtcNow : null;
 
         Plugin.Log.Debug($"Task '{task.Name}' toggled to {(task.IsCompleted ? "completed" : "incomplete")}");
+
+        // Notify that state has changed (for persistence)
+        onStateChanged?.Invoke();
     }
 
     /// <summary>
@@ -359,10 +377,26 @@ public class MainWindow : Window, IDisposable
     }
 
     /// <summary>
-    /// Gets the formatted text showing time since last reset.
+    /// Gets the formatted text showing time until next reset.
+    /// Uses ResetService if available, otherwise falls back to manual calculation.
     /// </summary>
     private string GetLastResetText()
     {
+        // Use ResetService if available for accurate time until next reset
+        if (resetService != null)
+        {
+            try
+            {
+                var timeUntilReset = resetService.GetFormattedTimeUntilReset(ResetType.Daily);
+                return $"Next reset: {timeUntilReset}";
+            }
+            catch
+            {
+                // Fall through to legacy calculation on error
+            }
+        }
+
+        // Fallback: Calculate time since last reset manually
         if (checklistState == null)
             return "Last reset: unknown";
 

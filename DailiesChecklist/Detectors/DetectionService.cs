@@ -23,6 +23,7 @@ public sealed class DetectionService : IDisposable
     private readonly Dictionary<Type, ITaskDetector> _detectors;
     private readonly Dictionary<string, ITaskDetector> _taskIdToDetector;
     private readonly Dictionary<Type, bool> _detectorFeatureFlags;
+    private readonly Dictionary<Type, Action<string, bool>> _detectorEventHandlers;
     private readonly object _lock = new();
     private bool _isDisposed;
 
@@ -58,6 +59,7 @@ public sealed class DetectionService : IDisposable
         _detectors = new Dictionary<Type, ITaskDetector>();
         _taskIdToDetector = new Dictionary<string, ITaskDetector>(StringComparer.OrdinalIgnoreCase);
         _detectorFeatureFlags = new Dictionary<Type, bool>();
+        _detectorEventHandlers = new Dictionary<Type, Action<string, bool>>();
     }
 
     /// <summary>
@@ -107,9 +109,13 @@ public sealed class DetectionService : IDisposable
                     _taskIdToDetector[taskId] = detector;
                 }
 
-                // Subscribe to state change events
-                detector.OnTaskStateChanged += (taskId, isCompleted) =>
+                // Create and store the event handler so we can unsubscribe later
+                Action<string, bool> eventHandler = (taskId, isCompleted) =>
                     HandleDetectorStateChange(detectorType, taskId, isCompleted);
+                _detectorEventHandlers[detectorType] = eventHandler;
+
+                // Subscribe to state change events
+                detector.OnTaskStateChanged += eventHandler;
 
                 // Initialize the detector
                 detector.Initialize();
@@ -126,6 +132,11 @@ public sealed class DetectionService : IDisposable
                 _log.Error(ex, "Failed to initialize detector {DetectorType}.", detectorType.Name);
 
                 // Clean up on failure
+                if (_detectorEventHandlers.TryGetValue(detectorType, out var handler))
+                {
+                    detector.OnTaskStateChanged -= handler;
+                    _detectorEventHandlers.Remove(detectorType);
+                }
                 _detectors.Remove(detectorType);
                 _detectorFeatureFlags.Remove(detectorType);
                 foreach (var taskId in detector.SupportedTaskIds)
@@ -165,6 +176,13 @@ public sealed class DetectionService : IDisposable
                 foreach (var taskId in detector.SupportedTaskIds)
                 {
                     _taskIdToDetector.Remove(taskId);
+                }
+
+                // Unsubscribe from the event handler before disposing
+                if (_detectorEventHandlers.TryGetValue(detectorType, out var handler))
+                {
+                    detector.OnTaskStateChanged -= handler;
+                    _detectorEventHandlers.Remove(detectorType);
                 }
 
                 // Remove from collections
@@ -399,6 +417,12 @@ public sealed class DetectionService : IDisposable
             {
                 try
                 {
+                    // Unsubscribe from event handler before disposing
+                    if (_detectorEventHandlers.TryGetValue(kvp.Key, out var handler))
+                    {
+                        kvp.Value.OnTaskStateChanged -= handler;
+                    }
+
                     kvp.Value.Dispose();
                     _log.Debug("Disposed detector {DetectorType}.", kvp.Key.Name);
                 }
@@ -411,6 +435,7 @@ public sealed class DetectionService : IDisposable
             _detectors.Clear();
             _taskIdToDetector.Clear();
             _detectorFeatureFlags.Clear();
+            _detectorEventHandlers.Clear();
 
             _log.Information("DetectionService disposed.");
         }
