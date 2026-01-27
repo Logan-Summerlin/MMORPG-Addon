@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using Dalamud.Plugin.Services;
 
-namespace DailiesChecklist.Detectors.Detectors;
+namespace DailiesChecklist.Detectors;
 
 /// <summary>
 /// Detector for Gold Saucer Cactpot lottery activities.
