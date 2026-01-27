@@ -434,8 +434,9 @@ public class MainWindow : Window, IDisposable
                 var timeUntilReset = _resetService.GetFormattedTimeUntilReset(ResetType.Daily);
                 return $"Next reset: {timeUntilReset}";
             }
-            catch
+            catch (Exception ex)
             {
+                Plugin.Log.Error(ex, "Failed to calculate reset text from ResetService.");
                 // Fall through to legacy calculation on error
             }
         }

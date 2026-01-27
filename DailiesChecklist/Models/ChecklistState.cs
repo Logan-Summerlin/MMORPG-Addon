@@ -36,6 +36,12 @@ namespace DailiesChecklist.Models
         public DateTime LastWeeklyReset { get; set; } = DateTime.MinValue;
 
         /// <summary>
+        /// Timestamp of the last Jumbo Cactpot reset that was processed.
+        /// Jumbo Cactpot drawing occurs Saturday at 08:00 UTC.
+        /// </summary>
+        public DateTime LastJumboCactpotReset { get; set; } = DateTime.MinValue;
+
+        /// <summary>
         /// Timestamp of the last Grand Company reset that was processed.
         /// GC reset occurs at 20:00 UTC (different from standard daily reset!).
         /// Affects: Supply/Provisioning missions, Squadron Training.
@@ -145,6 +151,7 @@ namespace DailiesChecklist.Models
                 Tasks = this.Tasks.Select(t => t.Clone()).ToList(),
                 LastDailyReset = this.LastDailyReset,
                 LastWeeklyReset = this.LastWeeklyReset,
+                LastJumboCactpotReset = this.LastJumboCactpotReset,
                 LastGCReset = this.LastGCReset,
                 LastSaveTime = this.LastSaveTime,
                 CharacterId = this.CharacterId,

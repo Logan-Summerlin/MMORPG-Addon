@@ -19,7 +19,7 @@ namespace DailiesChecklist.Services
     public class PersistenceService : IDisposable
     {
         // Current configuration version for migration support
-        private const int CurrentConfigVersion = 1;
+        private const int CurrentConfigVersion = 2;
 
         // Debounce delay in milliseconds
         private const int DebounceDelayMs = 2000;
@@ -129,11 +129,16 @@ namespace DailiesChecklist.Services
 
             lock (_saveLock)
             {
+                if (_disposed)
+                {
+                    return false;
+                }
+
                 // Cancel any pending debounced save
                 _debounceTimer?.Change(Timeout.Infinite, Timeout.Infinite);
                 _pendingSave = null;
 
-                return SaveInternal(state);
+                return SaveInternal(CreateSnapshot(state));
             }
         }
 
@@ -151,7 +156,12 @@ namespace DailiesChecklist.Services
 
             lock (_saveLock)
             {
-                _pendingSave = state;
+                if (_disposed)
+                {
+                    return;
+                }
+
+                _pendingSave = CreateSnapshot(state);
 
                 // Reset or create the debounce timer
                 if (_debounceTimer == null)
@@ -174,6 +184,11 @@ namespace DailiesChecklist.Services
 
             lock (_saveLock)
             {
+                if (_disposed)
+                {
+                    return;
+                }
+
                 stateToSave = _pendingSave;
                 _pendingSave = null;
             }
@@ -311,7 +326,11 @@ namespace DailiesChecklist.Services
         /// <returns>The loaded state, or a default state if loading fails.</returns>
         public async Task<ChecklistState> LoadAsync(CancellationToken cancellationToken = default)
         {
-            return await Task.Run(() => Load(), cancellationToken);
+            return await Task.Run(() =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return Load();
+            }, cancellationToken);
         }
 
         /// <summary>
@@ -328,6 +347,7 @@ namespace DailiesChecklist.Services
                 LastDailyReset = now,
                 LastGCReset = now,
                 LastWeeklyReset = now,
+                LastJumboCactpotReset = now,
                 LastSaveTime = now,
                 Tasks = new System.Collections.Generic.List<ChecklistTask>()
             };
@@ -347,6 +367,10 @@ namespace DailiesChecklist.Services
             //     // Migrate from v1 to v2
             //     // Add new fields, transform data, etc.
             // }
+            if (state.Version < 2 && state.LastJumboCactpotReset == default)
+            {
+                state.LastJumboCactpotReset = state.LastWeeklyReset;
+            }
 
             state.Version = CurrentConfigVersion;
             return state;
@@ -380,6 +404,11 @@ namespace DailiesChecklist.Services
                 state.LastWeeklyReset = now;
             }
 
+            if (state.LastJumboCactpotReset > now)
+            {
+                state.LastJumboCactpotReset = now;
+            }
+
             // Ensure reset timestamps have UTC kind
             if (state.LastDailyReset.Kind != DateTimeKind.Utc)
             {
@@ -394,6 +423,11 @@ namespace DailiesChecklist.Services
             if (state.LastWeeklyReset.Kind != DateTimeKind.Utc)
             {
                 state.LastWeeklyReset = DateTime.SpecifyKind(state.LastWeeklyReset, DateTimeKind.Utc);
+            }
+
+            if (state.LastJumboCactpotReset.Kind != DateTimeKind.Utc)
+            {
+                state.LastJumboCactpotReset = DateTime.SpecifyKind(state.LastJumboCactpotReset, DateTimeKind.Utc);
             }
 
             // Validate individual tasks
@@ -434,6 +468,11 @@ namespace DailiesChecklist.Services
 
             lock (_saveLock)
             {
+                if (_disposed)
+                {
+                    return;
+                }
+
                 stateToSave = _pendingSave;
                 _pendingSave = null;
                 _debounceTimer?.Change(Timeout.Infinite, Timeout.Infinite);
@@ -509,13 +548,31 @@ namespace DailiesChecklist.Services
                 return;
             }
 
-            _disposed = true;
+            ChecklistState? stateToSave;
 
-            // Flush any pending saves before disposing
-            Flush();
+            lock (_saveLock)
+            {
+                _disposed = true;
+                stateToSave = _pendingSave;
+                _pendingSave = null;
+                _debounceTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+            }
+
+            if (stateToSave != null)
+            {
+                SaveInternal(stateToSave);
+            }
 
             _debounceTimer?.Dispose();
             _debounceTimer = null;
+        }
+
+        private static ChecklistState CreateSnapshot(ChecklistState state)
+        {
+            var snapshot = state.Clone();
+            snapshot.Version = CurrentConfigVersion;
+            snapshot.LastSaveTime = DateTime.UtcNow;
+            return snapshot;
         }
     }
 

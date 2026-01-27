@@ -36,6 +36,10 @@ public sealed class RouletteDetector : ITaskDetector
     private readonly object _lock = new();
     private bool _isInitialized;
     private bool _isDisposed;
+    private byte _lastKnownRouletteId;
+    private DateTime _lastRouletteIdSeenUtc = DateTime.MinValue;
+
+    private static readonly TimeSpan RouletteIdCacheWindow = TimeSpan.FromHours(6);
 
     /// <summary>
     /// Task IDs for all supported duty roulettes.
@@ -123,6 +127,7 @@ public sealed class RouletteDetector : ITaskDetector
         {
             // Subscribe to duty events
             _dutyState.DutyCompleted += OnDutyCompleted;
+            _dutyState.DutyStarted += OnDutyStarted;
 
             // Subscribe to login/logout for state management
             _clientState.Login += OnLogin;
@@ -189,6 +194,26 @@ public sealed class RouletteDetector : ITaskDetector
     }
 
     /// <summary>
+    /// Handles duty start events to cache the roulette ID.
+    /// </summary>
+    /// <param name="sender">The event sender.</param>
+    /// <param name="territoryType">The territory type ID of the started duty.</param>
+    private void OnDutyStarted(object? sender, ushort territoryType)
+    {
+        if (!IsEnabled || _isDisposed)
+            return;
+
+        try
+        {
+            CacheRouletteId();
+        }
+        catch (Exception ex)
+        {
+            _log.Error(ex, "Error handling duty start event.");
+        }
+    }
+
+    /// <summary>
     /// Attempts to detect which roulette was completed based on the duty.
     /// </summary>
     /// <param name="territoryType">The completed duty's territory type.</param>
@@ -200,7 +225,18 @@ public sealed class RouletteDetector : ITaskDetector
     private void DetectRouletteCompletion(ushort territoryType)
     {
         // Check if the duty was entered via roulette using ContentRouletteId
+        CacheRouletteId();
         var rouletteId = _dutyState.ContentRouletteId;
+
+        if (rouletteId == 0
+            && _lastKnownRouletteId > 0
+            && DateTime.UtcNow - _lastRouletteIdSeenUtc < RouletteIdCacheWindow)
+        {
+            rouletteId = _lastKnownRouletteId;
+            _log.Debug(
+                "ContentRouletteId cleared before completion; using cached roulette ID {RouletteId}.",
+                rouletteId);
+        }
 
         if (rouletteId == 0)
         {
@@ -332,6 +368,7 @@ public sealed class RouletteDetector : ITaskDetector
 
             // Clear state on logout (will be re-queried on next login)
             ResetAllStates();
+            ResetRouletteCache();
         }
         catch (Exception ex)
         {
@@ -365,7 +402,24 @@ public sealed class RouletteDetector : ITaskDetector
             }
         }
 
+        ResetRouletteCache();
         _log.Debug("RouletteDetector states reset.");
+    }
+
+    private void CacheRouletteId()
+    {
+        var rouletteId = _dutyState.ContentRouletteId;
+        if (rouletteId > 0)
+        {
+            _lastKnownRouletteId = rouletteId;
+            _lastRouletteIdSeenUtc = DateTime.UtcNow;
+        }
+    }
+
+    private void ResetRouletteCache()
+    {
+        _lastKnownRouletteId = 0;
+        _lastRouletteIdSeenUtc = DateTime.MinValue;
     }
 
     /// <inheritdoc />
@@ -380,6 +434,7 @@ public sealed class RouletteDetector : ITaskDetector
         if (_isInitialized)
         {
             _dutyState.DutyCompleted -= OnDutyCompleted;
+            _dutyState.DutyStarted -= OnDutyStarted;
             _clientState.Login -= OnLogin;
             _clientState.Logout -= OnLogout;
         }

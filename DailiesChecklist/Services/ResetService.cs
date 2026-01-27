@@ -252,11 +252,11 @@ namespace DailiesChecklist.Services
                 appliedResets[ResetType.Weekly] = false;
             }
 
-            // Check Jumbo Cactpot reset (uses same timestamp as weekly for simplicity,
-            // but could be tracked separately if needed)
-            if (HasResetOccurredSince(ResetType.JumboCactpot, state.LastWeeklyReset))
+            // Check Jumbo Cactpot reset (Saturday 08:00 UTC)
+            if (HasResetOccurredSince(ResetType.JumboCactpot, state.LastJumboCactpotReset))
             {
                 // Jumbo Cactpot is typically included in weekly tasks
+                state.LastJumboCactpotReset = GetLastReset(ResetType.JumboCactpot);
                 appliedResets[ResetType.JumboCactpot] = true;
             }
             else
@@ -410,6 +410,11 @@ namespace DailiesChecklist.Services
         /// The timestamp of the last weekly reset that was applied.
         /// </summary>
         DateTime LastWeeklyReset { get; set; }
+
+        /// <summary>
+        /// The timestamp of the last Jumbo Cactpot reset that was applied.
+        /// </summary>
+        DateTime LastJumboCactpotReset { get; set; }
 
         /// <summary>
         /// Resets all daily tasks to their uncompleted state.

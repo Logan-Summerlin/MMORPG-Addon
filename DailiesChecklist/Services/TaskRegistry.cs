@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Linq;
 using DailiesChecklist.Models;
 
 namespace DailiesChecklist.Services
@@ -15,11 +17,20 @@ namespace DailiesChecklist.Services
     /// </summary>
     public static class TaskRegistry
     {
+        private static readonly List<ChecklistTask> DefaultTasks = BuildDefaultTasks();
+        private static readonly Dictionary<string, ChecklistTask> DefaultTaskLookup =
+            DefaultTasks.ToDictionary(task => task.Id, StringComparer.OrdinalIgnoreCase);
+
         /// <summary>
         /// Returns a fresh list of all tasks with default states.
         /// All tasks are enabled (IsEnabled=true) and not completed (IsCompleted=false).
         /// </summary>
         public static List<ChecklistTask> GetDefaultTasks()
+        {
+            return DefaultTasks.Select(task => task.Clone()).ToList();
+        }
+
+        private static List<ChecklistTask> BuildDefaultTasks()
         {
             var tasks = new List<ChecklistTask>();
 
@@ -439,8 +450,10 @@ namespace DailiesChecklist.Services
         /// </summary>
         public static List<ChecklistTask> GetDailyTasks()
         {
-            var allTasks = GetDefaultTasks();
-            return allTasks.FindAll(t => t.Category == TaskCategory.Daily);
+            return DefaultTasks
+                .Where(task => task.Category == TaskCategory.Daily)
+                .Select(task => task.Clone())
+                .ToList();
         }
 
         /// <summary>
@@ -448,8 +461,10 @@ namespace DailiesChecklist.Services
         /// </summary>
         public static List<ChecklistTask> GetWeeklyTasks()
         {
-            var allTasks = GetDefaultTasks();
-            return allTasks.FindAll(t => t.Category == TaskCategory.Weekly);
+            return DefaultTasks
+                .Where(task => task.Category == TaskCategory.Weekly)
+                .Select(task => task.Clone())
+                .ToList();
         }
 
         /// <summary>
@@ -458,23 +473,27 @@ namespace DailiesChecklist.Services
         /// </summary>
         public static ChecklistTask? GetTaskById(string id)
         {
-            var allTasks = GetDefaultTasks();
-            return allTasks.Find(t => t.Id == id);
+            if (string.IsNullOrWhiteSpace(id))
+            {
+                return null;
+            }
+
+            return DefaultTaskLookup.TryGetValue(id, out var task) ? task.Clone() : null;
         }
 
         /// <summary>
         /// Total count of all registered tasks.
         /// </summary>
-        public static int TotalTaskCount => GetDefaultTasks().Count;
+        public static int TotalTaskCount => DefaultTasks.Count;
 
         /// <summary>
         /// Count of daily tasks.
         /// </summary>
-        public static int DailyTaskCount => GetDailyTasks().Count;
+        public static int DailyTaskCount => DefaultTasks.Count(task => task.Category == TaskCategory.Daily);
 
         /// <summary>
         /// Count of weekly tasks.
         /// </summary>
-        public static int WeeklyTaskCount => GetWeeklyTasks().Count;
+        public static int WeeklyTaskCount => DefaultTasks.Count(task => task.Category == TaskCategory.Weekly);
     }
 }
