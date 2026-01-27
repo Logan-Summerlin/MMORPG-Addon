@@ -5,6 +5,22 @@ using System.Numerics;
 namespace DailiesChecklist;
 
 /// <summary>
+/// Feature flags for graceful degradation.
+/// Allows disabling specific detectors if they cause issues.
+/// </summary>
+public class DetectorFeatureFlags
+{
+    /// <summary>Enable/disable RouletteDetector auto-detection.</summary>
+    public bool EnableRouletteDetection { get; set; } = true;
+
+    /// <summary>Enable/disable CactpotDetector auto-detection.</summary>
+    public bool EnableCactpotDetection { get; set; } = true;
+
+    /// <summary>Enable/disable BeastTribeDetector auto-detection.</summary>
+    public bool EnableBeastTribeDetection { get; set; } = true;
+}
+
+/// <summary>
 /// Plugin configuration that persists between sessions.
 /// Implements IPluginConfiguration for Dalamud's configuration serialization system.
 /// </summary>
@@ -72,6 +88,15 @@ public class Configuration : IPluginConfiguration
     /// Whether to collapse the weekly section by default.
     /// </summary>
     public bool CollapseWeeklyByDefault { get; set; } = false;
+
+    #endregion
+
+    #region Feature Flags
+
+    /// <summary>
+    /// Feature flags for detector modules.
+    /// </summary>
+    public DetectorFeatureFlags FeatureFlags { get; set; } = new();
 
     #endregion
 

@@ -39,20 +39,38 @@ public sealed class RouletteDetector : ITaskDetector
 
     /// <summary>
     /// Task IDs for all supported duty roulettes.
+    /// Must match IDs defined in TaskRegistry.cs exactly.
     /// </summary>
     private static readonly string[] TaskIds =
     {
         "roulette_expert",
-        "roulette_levelcap",
-        "roulette_highlevel",
         "roulette_leveling",
-        "roulette_mainscenario",
-        "roulette_trials",
+        "roulette_msq",
         "roulette_alliance",
-        "roulette_normal",
-        "roulette_guildhest",
+        "roulette_normal_raid",
+        "roulette_trials",
+        "roulette_5060708090",
         "roulette_frontline",
+        "roulette_guildhests",
         "roulette_mentor",
+    };
+
+    /// <summary>
+    /// Maps game ContentRouletteId values to task IDs.
+    /// These IDs correspond to the ContentRoulette Excel sheet in the game data.
+    /// </summary>
+    private static readonly Dictionary<byte, string> RouletteIdToTaskId = new()
+    {
+        { 1, "roulette_leveling" },
+        { 2, "roulette_5060708090" },      // 50/60/70/80/90 dungeons
+        { 3, "roulette_msq" },             // Main Scenario
+        { 4, "roulette_guildhests" },
+        { 5, "roulette_expert" },
+        { 6, "roulette_trials" },
+        { 7, "roulette_alliance" },        // Alliance Raids
+        { 8, "roulette_normal_raid" },     // Normal Raids
+        { 9, "roulette_mentor" },
+        { 17, "roulette_frontline" },      // Frontline PvP
     };
 
     /// <inheritdoc />
@@ -113,9 +131,11 @@ public sealed class RouletteDetector : ITaskDetector
             _isInitialized = true;
             _log.Information("RouletteDetector initialized. Subscribed to DutyCompleted events.");
 
-            // TODO: Phase 2 - Query initial state from game data
-            // This would involve reading the Timers window data or equivalent
-            // to determine which roulettes have already been completed today
+            // If already logged in, query initial state
+            if (_clientState.IsLoggedIn)
+            {
+                QueryInitialState();
+            }
         }
         catch (Exception ex)
         {
@@ -159,18 +179,7 @@ public sealed class RouletteDetector : ITaskDetector
         {
             _log.Debug("Duty completed in territory {TerritoryType}.", territoryType);
 
-            // TODO: Phase 2 - Determine which roulette type was completed
-            // This requires:
-            // 1. Tracking when the player queued via roulette (vs direct queue)
-            // 2. Storing which roulette type was selected
-            // 3. Matching the completed duty to the queued roulette
-            //
-            // Possible approaches:
-            // - Hook the duty finder UI to detect roulette selection
-            // - Read the "in roulette" flag from game state
-            // - Track roulette bonus state changes
-            //
-            // For now, this is a stub that logs the event
+            // Detect if this was a roulette completion and update state accordingly
             DetectRouletteCompletion(territoryType);
         }
         catch (Exception ex)
@@ -184,34 +193,43 @@ public sealed class RouletteDetector : ITaskDetector
     /// </summary>
     /// <param name="territoryType">The completed duty's territory type.</param>
     /// <remarks>
-    /// TODO: Phase 2 - Implement actual roulette detection logic
-    ///
-    /// This method should:
-    /// 1. Check if the player was in a roulette (not direct queue)
-    /// 2. Determine which roulette type based on game state
-    /// 3. Update the completion state for that roulette
-    /// 4. Fire the OnTaskStateChanged event
-    ///
-    /// Detection strategies to investigate:
-    /// - ContentFinderCondition data from IDataManager
-    /// - Roulette bonus window/notification
-    /// - Character data for roulette completion flags
+    /// Uses IDutyState.ContentRouletteId to determine if the completed duty
+    /// was entered via a roulette queue. ContentRouletteId will be greater
+    /// than 0 when in a roulette duty, and maps to specific roulette types.
     /// </remarks>
     private void DetectRouletteCompletion(ushort territoryType)
     {
-        // TODO: Phase 2 - Implement roulette type detection
-        // For now, this is a placeholder that demonstrates the pattern
+        // Check if the duty was entered via roulette using ContentRouletteId
+        var rouletteId = _dutyState.ContentRouletteId;
 
-        // Example of how completion would be reported:
-        // string? detectedRouletteId = DetermineRouletteType(territoryType);
-        // if (detectedRouletteId != null)
-        // {
-        //     SetTaskComplete(detectedRouletteId);
-        // }
+        if (rouletteId == 0)
+        {
+            _log.Debug(
+                "Duty in territory {TerritoryType} was not a roulette (ContentRouletteId=0).",
+                territoryType);
+            return;
+        }
 
         _log.Debug(
-            "TODO: Implement roulette type detection for territory {TerritoryType}.",
-            territoryType);
+            "Roulette duty completed. TerritoryType={TerritoryType}, ContentRouletteId={RouletteId}.",
+            territoryType,
+            rouletteId);
+
+        // Map the roulette ID to our task ID
+        if (RouletteIdToTaskId.TryGetValue(rouletteId, out var taskId))
+        {
+            _log.Information(
+                "Detected roulette completion: {TaskId} (RouletteId={RouletteId}).",
+                taskId,
+                rouletteId);
+            SetTaskComplete(taskId);
+        }
+        else
+        {
+            _log.Warning(
+                "Unknown ContentRouletteId {RouletteId} - no mapping defined.",
+                rouletteId);
+        }
     }
 
     /// <summary>
@@ -260,11 +278,44 @@ public sealed class RouletteDetector : ITaskDetector
         if (_isDisposed)
             return;
 
-        _log.Debug("Player logged in. RouletteDetector ready.");
+        try
+        {
+            _log.Debug("Player logged in. RouletteDetector ready.");
 
-        // TODO: Phase 2 - Query current roulette completion state on login
-        // This should read from the Timers window or equivalent game data
-        // to restore the correct state for today's reset period
+            // Query initial roulette completion state
+            QueryInitialState();
+        }
+        catch (Exception ex)
+        {
+            _log.Error(ex, "Error handling login event in RouletteDetector.");
+        }
+    }
+
+    /// <summary>
+    /// Queries the initial roulette completion state from game data on login.
+    /// </summary>
+    /// <remarks>
+    /// This method attempts to read the current roulette completion state
+    /// so the checklist accurately reflects what the player has already done today.
+    /// Reading this state requires accessing game memory structures which is complex
+    /// and may need to be deferred or implemented using game UI agents.
+    /// </remarks>
+    private void QueryInitialState()
+    {
+        try
+        {
+            // Initial state query is not yet implemented.
+            // This requires reading game memory structures (e.g., the Timers window data
+            // or ContentsInfo agent) which is complex and may vary between game versions.
+            // For now, we rely on detecting completions as they happen during the session.
+            _log.Information(
+                "RouletteDetector: Initial state query not yet implemented. " +
+                "Roulette completions will be detected as they occur during this session.");
+        }
+        catch (Exception ex)
+        {
+            _log.Error(ex, "Error querying initial roulette state.");
+        }
     }
 
     /// <summary>
@@ -275,10 +326,17 @@ public sealed class RouletteDetector : ITaskDetector
         if (_isDisposed)
             return;
 
-        _log.Debug("Player logged out. Clearing RouletteDetector state.");
+        try
+        {
+            _log.Debug("Player logged out (type={Type}, code={Code}). Clearing RouletteDetector state.", type, code);
 
-        // Clear state on logout (will be re-queried on next login)
-        ResetAllStates();
+            // Clear state on logout (will be re-queried on next login)
+            ResetAllStates();
+        }
+        catch (Exception ex)
+        {
+            _log.Error(ex, "Error handling logout event in RouletteDetector.");
+        }
     }
 
     /// <summary>
