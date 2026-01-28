@@ -7,7 +7,7 @@ Requirements:
 - File name: icon.png
 - Size: Between 64x64 and 512x512 pixels
 - Format: PNG
-- Location: This directory (DailiesChecklist/images/)
+- Location: This directory (DailiesChecklist/)
 
 The icon will be displayed in the Dalamud plugin installer and should visually represent the plugin's functionality.
 
