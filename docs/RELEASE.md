@@ -51,17 +51,22 @@ https://raw.githubusercontent.com/Logan-Summerlin/MMORPG-Addon/master/pluginmast
 
 ## Creating a Release
 
+### IMPORTANT: First Release Required
+
+Before the plugin can be installed via the plugin installer, you **must create at least one GitHub release**. The `pluginmaster.json` download URLs point to GitHub Releases, so without a release, the plugin installer will fail with a download error.
+
 ### Automated (Recommended)
 
 The repository includes a GitHub Actions workflow that automatically builds and releases the plugin.
 
 **To create a new release:**
 
-1. Update the version number in:
+1. Ensure version numbers are consistent in:
    - `DailiesChecklist/DailiesChecklist.csproj` (Version property)
    - `DailiesChecklist/DailiesChecklist.json` (AssemblyVersion field)
+   - `pluginmaster.json` (AssemblyVersion field)
 
-2. Commit and push the changes
+2. Commit and push any pending changes
 
 3. Create and push a version tag:
    ```bash
@@ -73,7 +78,16 @@ The repository includes a GitHub Actions workflow that automatically builds and 
    - Build the plugin in Release mode
    - Package it as `DailiesChecklist.zip`
    - Create a GitHub Release with the ZIP attached
-   - Update `pluginmaster.json` with the new version
+   - Update `pluginmaster.json` with the new version and timestamp
+
+**Alternative: Manual Workflow Trigger**
+
+You can also trigger the release workflow manually from the GitHub Actions tab:
+1. Go to the repository's Actions tab
+2. Select "Build and Release Plugin" workflow
+3. Click "Run workflow"
+4. Enter the version number (e.g., 1.0.0.0)
+5. Click "Run workflow"
 
 ### Manual Release
 
@@ -113,15 +127,23 @@ MMORPG-Addon/
 
 ## Troubleshooting
 
+### Plugin installation fails (download error / 404)
+This is the most common issue and occurs when **no GitHub release exists**.
+- Check if a release exists: `https://github.com/Logan-Summerlin/MMORPG-Addon/releases`
+- If no releases exist, create one using the instructions above
+- Verify the `DownloadLinkInstall` URL in `pluginmaster.json` returns a valid ZIP file
+
 ### Plugin not appearing in installer
 - Verify the `pluginmaster.json` URL is accessible
 - Check that `DalamudApiLevel` matches your Dalamud version
 - Ensure the download URLs point to valid ZIP files
+- Verify `LastUpdate` in `pluginmaster.json` is a number, not a string
 
 ### Plugin fails to load
 - Check the Dalamud log: `/xllog`
 - Verify the ZIP contains `DailiesChecklist.dll` and `DailiesChecklist.json`
 - Ensure `InternalName` in the manifest matches the DLL name (without .dll)
+- Verify the plugin was built for the correct .NET version (net10.0-windows)
 
 ### Version not updating
 - Verify `AssemblyVersion` in `pluginmaster.json` differs from installed version
@@ -132,4 +154,4 @@ MMORPG-Addon/
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 1.0.0.0 | 2025-01-28 | Initial release |
+| 1.0.0.0 | 2026-01-28 | Initial release |
