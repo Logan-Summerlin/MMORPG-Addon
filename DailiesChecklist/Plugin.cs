@@ -93,8 +93,10 @@ public sealed class Plugin : IDalamudPlugin
     /// Plugin constructor. Called when the plugin is loaded by Dalamud.
     /// Initializes services, configuration, windows, commands, and event subscriptions.
     ///
+    /// Services are injected via Dalamud's constructor injection mechanism.
+    ///
     /// Initialization order:
-    /// 1. Initialize Service container
+    /// 1. Initialize Service container (via constructor injection)
     /// 2. Load Configuration
     /// 3. Create ResetService
     /// 4. Create PersistenceService
@@ -105,85 +107,144 @@ public sealed class Plugin : IDalamudPlugin
     /// 9. Subscribe to events
     /// </summary>
     /// <param name="pluginInterface">The Dalamud plugin interface.</param>
-    public Plugin(IDalamudPluginInterface pluginInterface)
+    /// <param name="commandManager">Command manager for slash commands.</param>
+    /// <param name="log">Plugin logging service.</param>
+    /// <param name="clientState">Game client state service.</param>
+    /// <param name="framework">Game framework service.</param>
+    /// <param name="dataManager">Lumina data manager service.</param>
+    /// <param name="condition">Player condition service.</param>
+    /// <param name="gameGui">Game GUI service.</param>
+    /// <param name="addonLifecycle">Addon lifecycle service.</param>
+    /// <param name="dutyState">Duty state service.</param>
+    public Plugin(
+        IDalamudPluginInterface pluginInterface,
+        ICommandManager commandManager,
+        IPluginLog log,
+        IClientState clientState,
+        IFramework framework,
+        IDataManager dataManager,
+        ICondition condition,
+        IGameGui gameGui,
+        IAddonLifecycle addonLifecycle,
+        IDutyState dutyState)
     {
-        // 1. Initialize the Service container first
-        Service.Initialize(pluginInterface);
+        // Pre-initialization breadcrumb (before Service is available)
+        // This helps diagnose failures that occur before logging is set up
+        System.Diagnostics.Debug.WriteLine("[DailiesChecklist] Plugin constructor started");
 
-        // 2. Load saved configuration or create new defaults
-        Configuration = Service.PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
-        Service.Log.Debug("Configuration loaded.");
-
-        // 3. Create ResetService
-        ResetService = new ResetService();
-        Service.Log.Debug("ResetService initialized.");
-
-        // 4. Create PersistenceService (using file path approach for simplicity, with logger for diagnostics)
-        var configPath = Path.Combine(Service.PluginInterface.ConfigDirectory.FullName, ChecklistStateFileName);
-        PersistenceService = new PersistenceService(configPath, Service.Log);
-        Service.Log.Debug("PersistenceService initialized with path: {Path}", configPath);
-
-        // 5. Load ChecklistState from persistence
-        ChecklistState = PersistenceService.Load();
-
-        // Ensure tasks are populated if this is a fresh state or tasks were cleared
-        if (ChecklistState.Tasks == null || ChecklistState.Tasks.Count == 0)
+        try
         {
-            ChecklistState.Tasks = TaskRegistry.GetDefaultTasks();
-            Service.Log.Information("Initialized checklist with {Count} default tasks.", ChecklistState.Tasks.Count);
+            // 1. Initialize the Service container with injected services
+            Service.Initialize(
+                pluginInterface,
+                commandManager,
+                log,
+                clientState,
+                framework,
+                dataManager,
+                condition,
+                gameGui,
+                addonLifecycle,
+                dutyState);
+
+            // EARLY BREADCRUMB - Log immediately after Service is available
+            // This confirms the service container initialized successfully
+            Service.Log.Information("[DailiesChecklist] Plugin loading - Service container initialized");
+
+            // 2. Load saved configuration or create new defaults
+            Configuration = Service.PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
+            Service.Log.Debug("Configuration loaded.");
+
+            // 3. Create ResetService
+            ResetService = new ResetService();
+            Service.Log.Debug("ResetService initialized.");
+
+            // 4. Create PersistenceService (using file path approach for simplicity, with logger for diagnostics)
+            var configPath = Path.Combine(Service.PluginInterface.ConfigDirectory.FullName, ChecklistStateFileName);
+            PersistenceService = new PersistenceService(configPath, Service.Log);
+            Service.Log.Debug("PersistenceService initialized with path: {Path}", configPath);
+
+            // 5. Load ChecklistState from persistence
+            ChecklistState = PersistenceService.Load();
+
+            // Ensure tasks are populated if this is a fresh state or tasks were cleared
+            if (ChecklistState.Tasks == null || ChecklistState.Tasks.Count == 0)
+            {
+                ChecklistState.Tasks = TaskRegistry.GetDefaultTasks();
+                Service.Log.Information("Initialized checklist with {Count} default tasks.", ChecklistState.Tasks.Count);
+            }
+            else
+            {
+                Service.Log.Debug("Loaded existing checklist with {Count} tasks.", ChecklistState.Tasks.Count);
+            }
+
+            // 6. Create DetectionService
+            // Note: Reset sync is deferred to first framework tick (Issue #4 fix)
+            // to ensure detectors are fully initialized before receiving reset signals.
+            DetectionService = new DetectionService(Service.Log);
+            Service.Log.Debug("DetectionService initialized.");
+
+            // Register detectors based on configuration feature flags
+            // Reset sync will occur on first framework tick via _pendingInitialResetSync flag
+            RegisterDetectors();
+
+            // 7. Create Windows (passing state and services via dependency injection)
+            MainWindow = new MainWindow(
+                plugin: this,
+                checklistState: ChecklistState,
+                resetService: ResetService,
+                onStateChanged: SaveChecklistState
+            );
+            SettingsWindow = new SettingsWindow(
+                plugin: this,
+                checklistState: ChecklistState,
+                onStateChanged: SaveChecklistState
+            );
+
+            // Add windows to the window system
+            WindowSystem.AddWindow(MainWindow);
+            WindowSystem.AddWindow(SettingsWindow);
+
+            // Register command handler
+            Service.CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
+            {
+                HelpMessage = "Toggle the Dailies Checklist window"
+            });
+
+            // 8. Subscribe to events
+            Service.PluginInterface.UiBuilder.Draw += DrawUI;
+            Service.PluginInterface.UiBuilder.OpenConfigUi += ToggleSettingsUI;
+            Service.PluginInterface.UiBuilder.OpenMainUi += ToggleMainUI;
+            Service.Framework.Update += OnFrameworkUpdate;
+
+            // Subscribe to detection service events for auto-detection updates
+            DetectionService.OnTaskStateChanged += OnTaskStateChanged;
+
+            // Subscribe to persistence events for logging
+            PersistenceService.OnSaveCompleted += OnSaveCompleted;
+            PersistenceService.OnLoadCompleted += OnLoadCompleted;
+
+            Service.Log.Information("Dailies Checklist plugin loaded successfully!");
         }
-        else
+        catch (Exception ex)
         {
-            Service.Log.Debug("Loaded existing checklist with {Count} tasks.", ChecklistState.Tasks.Count);
+            // Log the exception before it propagates to Dalamud
+            // This ensures we have diagnostic information for load failures
+            try
+            {
+                Service.Log?.Error(ex, "FATAL: DailiesChecklist plugin failed to load during initialization!");
+            }
+            catch
+            {
+                // Service.Log may not be available if initialization failed early
+                // Fall back to Debug output which can be captured by debuggers
+                System.Diagnostics.Debug.WriteLine($"[DailiesChecklist] FATAL: Plugin failed to load: {ex}");
+            }
+
+            // Re-throw to let Dalamud handle the failure
+            // The plugin will show as "Load Error" but we now have logged the reason
+            throw;
         }
-
-        // 6. Create DetectionService
-        // Note: Reset sync is deferred to first framework tick (Issue #4 fix)
-        // to ensure detectors are fully initialized before receiving reset signals.
-        DetectionService = new DetectionService(Service.Log);
-        Service.Log.Debug("DetectionService initialized.");
-
-        // Register detectors based on configuration feature flags
-        // Reset sync will occur on first framework tick via _pendingInitialResetSync flag
-        RegisterDetectors();
-
-        // 7. Create Windows (passing state and services via dependency injection)
-        MainWindow = new MainWindow(
-            plugin: this,
-            checklistState: ChecklistState,
-            resetService: ResetService,
-            onStateChanged: SaveChecklistState
-        );
-        SettingsWindow = new SettingsWindow(
-            plugin: this,
-            checklistState: ChecklistState,
-            onStateChanged: SaveChecklistState
-        );
-
-        // Add windows to the window system
-        WindowSystem.AddWindow(MainWindow);
-        WindowSystem.AddWindow(SettingsWindow);
-
-        // Register command handler
-        Service.CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
-        {
-            HelpMessage = "Toggle the Dailies Checklist window"
-        });
-
-        // 8. Subscribe to events
-        Service.PluginInterface.UiBuilder.Draw += DrawUI;
-        Service.PluginInterface.UiBuilder.OpenConfigUi += ToggleSettingsUI;
-        Service.PluginInterface.UiBuilder.OpenMainUi += ToggleMainUI;
-        Service.Framework.Update += OnFrameworkUpdate;
-
-        // Subscribe to detection service events for auto-detection updates
-        DetectionService.OnTaskStateChanged += OnTaskStateChanged;
-
-        // Subscribe to persistence events for logging
-        PersistenceService.OnSaveCompleted += OnSaveCompleted;
-        PersistenceService.OnLoadCompleted += OnLoadCompleted;
-
-        Service.Log.Information("Dailies Checklist plugin loaded successfully!");
     }
 
     #endregion

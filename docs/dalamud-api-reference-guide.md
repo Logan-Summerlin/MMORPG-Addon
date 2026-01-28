@@ -3,7 +3,7 @@
 A comprehensive technical reference for developing plugins using the Dalamud framework for Final Fantasy XIV.
 
 **Current API Version:** 14
-**Supported .NET Version:** .NET 8.0
+**Supported .NET Version:** .NET 10.0
 **Last Updated:** January 2026
 
 ---
@@ -523,7 +523,7 @@ public virtual bool DrawConditions() => true;  // Visibility check
 **Example Window:**
 ```csharp
 using Dalamud.Interface.Windowing;
-using ImGuiNET;
+using Dalamud.Bindings.ImGui;
 
 public class MyMainWindow : Window
 {
