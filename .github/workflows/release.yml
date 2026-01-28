@@ -51,10 +51,10 @@ jobs:
           Get-ChildItem $dalamudPath
 
       - name: Restore dependencies
-        run: dotnet restore
+        run: dotnet restore -p:DalamudLibPath="${{ runner.temp }}/dalamud"
 
       - name: Build Release
-        run: dotnet build --configuration Release --no-restore
+        run: dotnet build --configuration Release --no-restore -p:DalamudLibPath="${{ runner.temp }}/dalamud"
 
       - name: Get version from tag or input
         id: version
