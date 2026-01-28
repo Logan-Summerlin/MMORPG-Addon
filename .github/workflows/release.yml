@@ -97,7 +97,8 @@ jobs:
   update-repo:
     needs: build
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    # Run for both tag pushes and manual workflow dispatches
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
 
     steps:
       - name: Checkout repository
@@ -105,9 +106,14 @@ jobs:
         with:
           ref: master
 
-      - name: Get version from tag
+      - name: Get version from tag or input
         id: version
-        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          fi
 
       - name: Update pluginmaster.json
         run: |
@@ -116,7 +122,8 @@ jobs:
           TIMESTAMP=$(date +%s)
 
           # Use jq to update the JSON file
-          jq --arg ver "$VERSION" --arg ts "$TIMESTAMP" \
+          # Note: --arg passes as string, --argjson passes as number
+          jq --arg ver "$VERSION" --argjson ts "$TIMESTAMP" \
             '.[0].AssemblyVersion = $ver | .[0].LastUpdate = $ts' \
             pluginmaster.json > pluginmaster.tmp.json
           mv pluginmaster.tmp.json pluginmaster.json
