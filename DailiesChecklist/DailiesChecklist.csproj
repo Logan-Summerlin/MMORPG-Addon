@@ -9,9 +9,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Update="images\icon.png">
+    <None Update="icon.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Visible>false</Visible>
     </None>
   </ItemGroup>
 </Project>
