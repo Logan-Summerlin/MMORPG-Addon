@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Numerics;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
+using DailiesChecklist;
 using DailiesChecklist.Models;
 using DailiesChecklist.Services;
 using DailiesChecklist.Utils;
