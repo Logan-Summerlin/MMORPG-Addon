@@ -167,10 +167,10 @@ public static class UIHelpers
     /// <returns>True if the header is expanded, false if collapsed.</returns>
     public static bool CollapsingHeaderWithProgress(string label, int completedCount, int totalCount)
     {
-        // Draw the collapsing header with AllowOverlap
+        // Draw the collapsing header with AllowItemOverlap
         var isOpen = ImGui.CollapsingHeader(
             label,
-            ImGuiTreeNodeFlags.DefaultOpen | ImGuiTreeNodeFlags.AllowOverlap);
+            ImGuiTreeNodeFlags.DefaultOpen | ImGuiTreeNodeFlags.AllowItemOverlap);
 
         // Calculate progress text position (right-aligned)
         var progressText = $"{completedCount}/{totalCount}";

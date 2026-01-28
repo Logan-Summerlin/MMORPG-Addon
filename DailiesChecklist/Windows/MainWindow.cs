@@ -194,7 +194,7 @@ public class MainWindow : Window, IDisposable
                 completedCount++;
         }
 
-        // Use ImGui.CollapsingHeader with AllowOverlap so we can add the progress and Reset All button
+        // Use ImGui.CollapsingHeader with AllowItemOverlap so we can add the progress and Reset All button
         var isOpen = ImGui.CollapsingHeader(
             headerLabel,
             GetCategoryHeaderFlags(category));
@@ -533,7 +533,7 @@ public class MainWindow : Window, IDisposable
 
     private ImGuiTreeNodeFlags GetCategoryHeaderFlags(TaskCategory category)
     {
-        var flags = ImGuiTreeNodeFlags.AllowOverlap;
+        var flags = ImGuiTreeNodeFlags.AllowItemOverlap;
         var defaultOpen = category switch
         {
             TaskCategory.Daily => !_configuration.CollapseDailyByDefault,

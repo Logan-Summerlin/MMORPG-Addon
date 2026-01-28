@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using Dalamud.Plugin.Services;
+using FFXIVClientStructs.FFXIV.Client.Game.UI;
 
 namespace DailiesChecklist.Detectors;
 
@@ -251,15 +252,15 @@ public sealed class RouletteDetector : ITaskDetector
     /// </summary>
     /// <param name="territoryType">The completed duty's territory type.</param>
     /// <remarks>
-    /// Uses IDutyState.ContentRouletteId to determine if the completed duty
-    /// was entered via a roulette queue. ContentRouletteId will be greater
+    /// Uses FFXIVClientStructs ContentsFinder to determine if the completed duty
+    /// was entered via a roulette queue. The roulette ID will be greater
     /// than 0 when in a roulette duty, and maps to specific roulette types.
     /// </remarks>
     private void DetectRouletteCompletion(ushort territoryType)
     {
-        // Check if the duty was entered via roulette using ContentRouletteId
+        // Check if the duty was entered via roulette using FFXIVClientStructs
         CacheRouletteId();
-        var rouletteId = _dutyState.ContentRouletteId;
+        var rouletteId = GetContentRouletteId();
 
         if (rouletteId == 0
             && _lastKnownRouletteId > 0
@@ -472,11 +473,39 @@ public sealed class RouletteDetector : ITaskDetector
 
     private void CacheRouletteId()
     {
-        var rouletteId = _dutyState.ContentRouletteId;
+        var rouletteId = GetContentRouletteId();
         if (rouletteId > 0)
         {
             _lastKnownRouletteId = rouletteId;
             _lastRouletteIdSeenUtc = DateTime.UtcNow;
+        }
+    }
+
+    /// <summary>
+    /// Gets the current content roulette ID from FFXIVClientStructs.
+    /// </summary>
+    /// <returns>The roulette ID, or 0 if not in a roulette duty or unable to read.</returns>
+    /// <remarks>
+    /// This replaces the removed IDutyState.ContentRouletteId property by accessing
+    /// the ContentsFinder struct directly via FFXIVClientStructs.
+    /// </remarks>
+    private unsafe byte GetContentRouletteId()
+    {
+        try
+        {
+            var contentsFinder = ContentsFinder.Instance();
+            if (contentsFinder == null)
+            {
+                return 0;
+            }
+
+            // Access the queued content roulette ID from the ContentsFinder struct
+            return contentsFinder->QueueInfo.QueuedContentRouletteId;
+        }
+        catch (Exception ex)
+        {
+            _log.Error(ex, "Failed to get ContentRouletteId from FFXIVClientStructs.");
+            return 0;
         }
     }
 
