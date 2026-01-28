@@ -1,0 +1,130 @@
+name: Build and Release Plugin
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number (e.g., 1.0.0.0)'
+        required: true
+        default: '1.0.0.0'
+
+env:
+  PLUGIN_NAME: DailiesChecklist
+  SOLUTION_NAME: DailiesChecklist
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build Release
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Get version from tag or input
+        id: version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create plugin package
+        shell: pwsh
+        run: |
+          $outputDir = "${{ env.PLUGIN_NAME }}/bin/Release/net10.0-windows"
+          $packageDir = "package/${{ env.PLUGIN_NAME }}"
+
+          # Create package directory
+          New-Item -ItemType Directory -Force -Path $packageDir
+
+          # Copy required files
+          Copy-Item "$outputDir/${{ env.PLUGIN_NAME }}.dll" $packageDir
+          Copy-Item "${{ env.PLUGIN_NAME }}/${{ env.PLUGIN_NAME }}.json" $packageDir
+
+          # Copy icon if it exists in output, otherwise from source
+          if (Test-Path "$outputDir/icon.png") {
+            Copy-Item "$outputDir/icon.png" $packageDir
+          } elseif (Test-Path "${{ env.PLUGIN_NAME }}/icon.png") {
+            Copy-Item "${{ env.PLUGIN_NAME }}/icon.png" $packageDir
+          }
+
+          # Create ZIP
+          Compress-Archive -Path "package/*" -DestinationPath "${{ env.PLUGIN_NAME }}.zip" -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PLUGIN_NAME }}
+          path: ${{ env.PLUGIN_NAME }}.zip
+
+      - name: Create Release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ${{ env.PLUGIN_NAME }}.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Release (manual)
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          files: ${{ env.PLUGIN_NAME }}.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  update-repo:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: master
+
+      - name: Get version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Update pluginmaster.json
+        run: |
+          # Update AssemblyVersion and LastUpdate timestamp
+          VERSION="${{ steps.version.outputs.version }}"
+          TIMESTAMP=$(date +%s)
+
+          # Use jq to update the JSON file
+          jq --arg ver "$VERSION" --arg ts "$TIMESTAMP" \
+            '.[0].AssemblyVersion = $ver | .[0].LastUpdate = $ts' \
+            pluginmaster.json > pluginmaster.tmp.json
+          mv pluginmaster.tmp.json pluginmaster.json
+
+      - name: Commit updated pluginmaster.json
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add pluginmaster.json
+          git diff --staged --quiet || git commit -m "Update pluginmaster.json for v${{ steps.version.outputs.version }}"
+          git push
