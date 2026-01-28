@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using Dalamud.Game.Addon.Lifecycle;
 using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
 using Dalamud.Plugin.Services;
@@ -58,6 +59,39 @@ public sealed class CactpotDetector : ITaskDetector
     private const string JumboCactpotAddonName = "LotteryWeekly";
 
     /// <summary>
+    /// Detection limitations for this detector.
+    /// Describes gaps in detection capability for UI display.
+    /// </summary>
+    private static readonly IReadOnlyList<DetectionLimitation> Limitations = new ReadOnlyCollection<DetectionLimitation>(
+        new List<DetectionLimitation>
+        {
+            new DetectionLimitation(
+                TaskId: "mini_cactpot",
+                LimitationType: DetectionLimitationType.SessionOnly,
+                Description: "Mini Cactpot tickets played are only counted during this session. " +
+                             "Tickets used before logging in will not be detected.",
+                TechnicalReason: "Initial ticket state query is not implemented. " +
+                                 "Detection relies on MiniCactpotResult addon events during the session."
+            ),
+            new DetectionLimitation(
+                TaskId: "jumbo_cactpot",
+                LimitationType: DetectionLimitationType.NotImplemented,
+                Description: "Jumbo Cactpot ticket purchases cannot be automatically detected yet. " +
+                             "Please manually track your weekly Jumbo Cactpot tickets.",
+                TechnicalReason: "The LotteryWeekly addon appears for both viewing results and purchasing tickets. " +
+                                 "Differentiating between these states requires reading addon node data or " +
+                                 "tracking button click events, which is not yet implemented."
+            ),
+            new DetectionLimitation(
+                TaskId: null, // Applies to all tasks
+                LimitationType: DetectionLimitationType.NoInitialStateQuery,
+                Description: "Cannot determine how many Cactpot tickets were already used when logging in.",
+                TechnicalReason: "Query of current ticket usage from game data is not implemented. " +
+                                 "Would require reading Gold Saucer state from game memory structures."
+            )
+        });
+
+    /// <summary>
     /// Task IDs for Cactpot activities.
     /// </summary>
     private static readonly string[] TaskIds =
@@ -73,7 +107,13 @@ public sealed class CactpotDetector : ITaskDetector
     public bool IsEnabled { get; set; } = true;
 
     /// <inheritdoc />
+    public bool HasLimitedDetection => true;
+
+    /// <inheritdoc />
     public event Action<string, bool>? OnTaskStateChanged;
+
+    /// <inheritdoc />
+    public IReadOnlyList<DetectionLimitation> GetDetectionLimitations() => Limitations;
 
     /// <summary>
     /// Creates a new CactpotDetector instance.
@@ -123,10 +163,19 @@ public sealed class CactpotDetector : ITaskDetector
             _clientState.Logout += OnLogout;
 
             _isInitialized = true;
-            _log.Information("CactpotDetector initialized.");
+            _log.Information(
+                "CactpotDetector initialized. Note: Detection is session-only and " +
+                "Jumbo Cactpot purchase tracking is not yet implemented.");
 
-            // TODO: Phase 2 - Query initial ticket state
-            // Need to determine how to read current ticket usage from game data
+            // LIMITATION: Initial ticket state query is not implemented.
+            //
+            // Implementation would require:
+            // 1. Reading Gold Saucer player data from game memory
+            // 2. FFXIVClientStructs integration for safe memory access
+            // 3. Finding the correct data structures for ticket usage tracking
+            //
+            // Current behavior: Tickets are counted only as they are used during the session.
+            // The HasLimitedDetection property communicates this to the UI.
         }
         catch (Exception ex)
         {
@@ -324,12 +373,34 @@ public sealed class CactpotDetector : ITaskDetector
     /// <param name="type">The addon event type.</param>
     /// <param name="args">The addon event arguments.</param>
     /// <remarks>
-    /// TODO: The LotteryWeekly addon appears for both viewing results and purchasing tickets.
-    /// Additional logic is needed to differentiate between these states:
-    /// - Check addon node values to determine if in purchase mode
-    /// - Track button clicks for "Purchase" confirmation
-    /// - Monitor for the purchase confirmation dialog
-    /// For now, this handler logs the event but does not automatically record a purchase.
+    /// <para>
+    /// <strong>KNOWN LIMITATION:</strong> Jumbo Cactpot purchase detection is NOT implemented.
+    /// The LotteryWeekly addon appears for both viewing results AND purchasing tickets,
+    /// making it impossible to detect purchases without additional logic.
+    /// </para>
+    /// <para>
+    /// <strong>Why This Is Difficult:</strong>
+    /// <list type="bullet">
+    ///   <item>The addon opens when clicking "Purchase Ticket" OR "View Results"</item>
+    ///   <item>Differentiating requires reading addon node text/state values</item>
+    ///   <item>Purchase confirmation happens in a separate dialog or within the addon</item>
+    ///   <item>Button click tracking requires unsafe addon interaction hooks</item>
+    /// </list>
+    /// </para>
+    /// <para>
+    /// <strong>Possible Future Implementations:</strong>
+    /// <list type="number">
+    ///   <item>Read addon nodes to check for "Purchase" vs "Results" UI state</item>
+    ///   <item>Monitor MGP changes to detect ticket purchase (10 MGP per ticket)</item>
+    ///   <item>Track inventory for Jumbo Cactpot ticket items</item>
+    ///   <item>Hook the purchase confirmation button callback</item>
+    /// </list>
+    /// </para>
+    /// <para>
+    /// <strong>Current Workaround:</strong>
+    /// Users must manually track Jumbo Cactpot tickets. The UI should indicate this
+    /// via the HasLimitedDetection property and GetDetectionLimitations() method.
+    /// </para>
     /// </remarks>
     private void OnJumboCactpotAddonSetup(AddonEvent type, AddonArgs args)
     {
@@ -338,14 +409,21 @@ public sealed class CactpotDetector : ITaskDetector
 
         try
         {
-            // TODO: Implement logic to differentiate purchase from viewing
-            // The addon appears in both cases, so we need to:
-            // 1. Read addon node data to check current state
-            // 2. Or register for button click events to detect actual purchases
-            _log.Debug("Jumbo Cactpot addon detected - needs additional logic to determine if purchasing.");
+            // LIMITATION: Cannot automatically detect Jumbo Cactpot purchases.
+            //
+            // The LotteryWeekly addon appears for both purchasing and viewing results.
+            // Without reading addon node state or tracking button clicks, we cannot
+            // reliably determine if the user is purchasing a ticket.
+            //
+            // This limitation is documented in GetDetectionLimitations() and communicated
+            // to the UI via HasLimitedDetection = true.
 
-            // Do NOT automatically record purchase here - need to verify it's actually a purchase
-            // RecordJumboCactpotPurchase();
+            _log.Verbose(
+                "Jumbo Cactpot addon detected. Purchase detection not implemented - " +
+                "users must manually track weekly tickets.");
+
+            // IMPORTANT: Do NOT call RecordJumboCactpotPurchase() here!
+            // We cannot distinguish between viewing results and purchasing.
         }
         catch (Exception ex)
         {
@@ -451,6 +529,17 @@ public sealed class CactpotDetector : ITaskDetector
     /// <summary>
     /// Handles player login events.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>KNOWN LIMITATION:</strong> Initial ticket state is not queried on login.
+    /// Tickets used before this session will not be reflected in the count.
+    /// </para>
+    /// <para>
+    /// Implementation would require reading Gold Saucer state from game memory,
+    /// which needs FFXIVClientStructs integration and reverse engineering of
+    /// the relevant data structures.
+    /// </para>
+    /// </remarks>
     private void OnLogin()
     {
         if (_isDisposed)
@@ -458,8 +547,14 @@ public sealed class CactpotDetector : ITaskDetector
 
         _log.Debug("Player logged in. CactpotDetector ready.");
 
-        // TODO: Phase 2 - Query current Cactpot ticket state on login
-        // This should read from game data to restore the correct state
+        // LIMITATION: Initial ticket state query is not implemented.
+        // Detection starts fresh each session - tickets used before login are not counted.
+        // This limitation is documented in GetDetectionLimitations().
+
+        _log.Information(
+            "CactpotDetector: Mini Cactpot detection is session-only. " +
+            "Jumbo Cactpot detection is not implemented. " +
+            "Please manually track tickets used before this session.");
     }
 
     /// <summary>

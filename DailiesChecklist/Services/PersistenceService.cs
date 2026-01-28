@@ -86,6 +86,8 @@ namespace DailiesChecklist.Services
         /// </summary>
         /// <param name="configFilePath">The path to the configuration file.</param>
         /// <param name="log">Optional logger for diagnostics.</param>
+        /// <exception cref="ArgumentException">Thrown when the path is null, empty, or invalid.</exception>
+        /// <exception cref="UnauthorizedAccessException">Thrown when the path is outside allowed directories.</exception>
         public PersistenceService(string configFilePath, IPluginLog? log = null)
         {
             if (string.IsNullOrWhiteSpace(configFilePath))
@@ -93,9 +95,111 @@ namespace DailiesChecklist.Services
                 throw new ArgumentException("Config file path cannot be null or empty.", nameof(configFilePath));
             }
 
-            _configFilePath = configFilePath;
+            // Normalize and validate the path for security
+            _configFilePath = ValidateAndNormalizePath(configFilePath);
             _jsonOptions = CreateJsonOptions();
             _log = log;
+        }
+
+        /// <summary>
+        /// Validates and normalizes the configuration file path.
+        /// Ensures the path is within allowed directories to prevent path traversal attacks
+        /// and unauthorized file access.
+        /// </summary>
+        /// <param name="rawPath">The raw path to validate.</param>
+        /// <returns>The normalized, validated path.</returns>
+        /// <exception cref="ArgumentException">Thrown when the path is invalid.</exception>
+        /// <exception cref="UnauthorizedAccessException">Thrown when the path is outside allowed directories.</exception>
+        private static string ValidateAndNormalizePath(string rawPath)
+        {
+            // Get the full, normalized path (resolves . and .. and symlinks)
+            string normalizedPath;
+            try
+            {
+                normalizedPath = Path.GetFullPath(rawPath);
+            }
+            catch (Exception ex) when (ex is ArgumentException or PathTooLongException or NotSupportedException)
+            {
+                throw new ArgumentException($"Invalid path format: {rawPath}", nameof(rawPath), ex);
+            }
+
+            // Validate that the path has a proper filename (not just a directory)
+            var fileName = Path.GetFileName(normalizedPath);
+            if (string.IsNullOrWhiteSpace(fileName))
+            {
+                throw new ArgumentException("Path must specify a filename, not just a directory.", nameof(rawPath));
+            }
+
+            // Ensure the file extension is appropriate for config files
+            var extension = Path.GetExtension(normalizedPath).ToLowerInvariant();
+            var allowedExtensions = new[] { ".json", ".config", ".dat", ".xml" };
+            if (!Array.Exists(allowedExtensions, ext => ext == extension))
+            {
+                throw new ArgumentException(
+                    $"File extension '{extension}' is not allowed. Allowed extensions: {string.Join(", ", allowedExtensions)}",
+                    nameof(rawPath));
+            }
+
+            // Define allowed base directories for config files
+            // These are safe locations where plugin data should be stored
+            var allowedBasePaths = new List<string>();
+
+            // User's AppData directories (where Dalamud/plugin configs typically live)
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            var roamingAppData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var tempPath = Path.GetTempPath();
+
+            if (!string.IsNullOrEmpty(localAppData))
+                allowedBasePaths.Add(localAppData);
+            if (!string.IsNullOrEmpty(roamingAppData))
+                allowedBasePaths.Add(roamingAppData);
+            if (!string.IsNullOrEmpty(userProfile))
+                allowedBasePaths.Add(userProfile);
+            if (!string.IsNullOrEmpty(tempPath))
+                allowedBasePaths.Add(Path.GetFullPath(tempPath));
+
+            // Also allow current working directory for test scenarios
+            try
+            {
+                var currentDir = Path.GetFullPath(Environment.CurrentDirectory);
+                allowedBasePaths.Add(currentDir);
+            }
+            catch
+            {
+                // Ignore if current directory cannot be resolved
+            }
+
+            // Check if the normalized path is within any allowed directory
+            var isPathAllowed = false;
+            foreach (var basePath in allowedBasePaths)
+            {
+                if (string.IsNullOrEmpty(basePath))
+                    continue;
+
+                // Normalize the base path and ensure it ends with a directory separator
+                // to prevent prefix matching attacks (e.g., /home/user matching /home/username)
+                var normalizedBase = Path.GetFullPath(basePath);
+                if (!normalizedBase.EndsWith(Path.DirectorySeparatorChar.ToString()))
+                {
+                    normalizedBase += Path.DirectorySeparatorChar;
+                }
+
+                if (normalizedPath.StartsWith(normalizedBase, StringComparison.OrdinalIgnoreCase))
+                {
+                    isPathAllowed = true;
+                    break;
+                }
+            }
+
+            if (!isPathAllowed)
+            {
+                throw new UnauthorizedAccessException(
+                    $"Configuration file path must be within a user data directory. " +
+                    $"Path '{normalizedPath}' is not in an allowed location.");
+            }
+
+            return normalizedPath;
         }
 
         /// <summary>
