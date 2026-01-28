@@ -8,12 +8,12 @@
   "DalamudApiLevel": 14,
   "AssemblyVersion": "1.0.0.0",
   "RepoUrl": "https://github.com/Logan-Summerlin/MMORPG-Addon",
-  "IconUrl": "https://raw.githubusercontent.com/Logan-Summerlin/MMORPG-Addon/main/DailiesChecklist/icon.png",
+  "IconUrl": "https://raw.githubusercontent.com/Logan-Summerlin/MMORPG-Addon/master/DailiesChecklist/icon.png",
   "ImageUrls": [],
   "AcceptsFeedback": true,
   "FeedbackMessage": "Please report issues on GitHub or use the Dalamud feedback system.",
   "Changelog": "Initial release - Daily and weekly activity tracking with auto-detection support",
-  "CategoryTags": [
+  "Tags": [
     "checklist",
     "dailies",
     "weeklies",
