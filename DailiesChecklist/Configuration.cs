@@ -131,6 +131,13 @@ public class Configuration : IPluginConfiguration
     /// </summary>
     public void Save()
     {
-        Plugin.PluginInterface.SavePluginConfig(this);
+        try
+        {
+            Service.PluginInterface.SavePluginConfig(this);
+        }
+        catch (System.Exception ex)
+        {
+            Service.Log.Error(ex, "Failed to save plugin configuration.");
+        }
     }
 }

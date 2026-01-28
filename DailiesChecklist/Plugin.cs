@@ -1,13 +1,13 @@
 using System;
 using System.IO;
 using Dalamud.Game.Command;
-using Dalamud.IoC;
 using Dalamud.Plugin;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin.Services;
 using DailiesChecklist.Detectors;
 using DailiesChecklist.Models;
 using DailiesChecklist.Services;
+using DailiesChecklist.Utils;
 using DailiesChecklist.Windows;
 
 namespace DailiesChecklist;
@@ -18,60 +18,6 @@ namespace DailiesChecklist;
 /// </summary>
 public sealed class Plugin : IDalamudPlugin
 {
-    #region Dalamud Services
-
-    /// <summary>
-    /// Core plugin interface for configs, paths, UI hooks.
-    /// </summary>
-    [PluginService] internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
-
-    /// <summary>
-    /// Command manager for registering slash commands.
-    /// </summary>
-    [PluginService] internal static ICommandManager CommandManager { get; private set; } = null!;
-
-    /// <summary>
-    /// Logging service for debug output.
-    /// </summary>
-    [PluginService] internal static IPluginLog Log { get; private set; } = null!;
-
-    /// <summary>
-    /// Game client state (logged in, territory, etc.).
-    /// </summary>
-    [PluginService] internal static IClientState ClientState { get; private set; } = null!;
-
-    /// <summary>
-    /// Access to game framework and main loop.
-    /// </summary>
-    [PluginService] internal static IFramework Framework { get; private set; } = null!;
-
-    /// <summary>
-    /// Access to Lumina game data sheets.
-    /// </summary>
-    [PluginService] internal static IDataManager DataManager { get; private set; } = null!;
-
-    /// <summary>
-    /// Player condition flags (in combat, mounted, etc.).
-    /// </summary>
-    [PluginService] internal static ICondition Condition { get; private set; } = null!;
-
-    /// <summary>
-    /// Game UI access for addon reading.
-    /// </summary>
-    [PluginService] internal static IGameGui GameGui { get; private set; } = null!;
-
-    /// <summary>
-    /// Addon lifecycle events for monitoring native UI windows.
-    /// </summary>
-    [PluginService] internal static IAddonLifecycle AddonLifecycle { get; private set; } = null!;
-
-    /// <summary>
-    /// Duty state service for roulette completion detection.
-    /// </summary>
-    [PluginService] internal static IDutyState DutyState { get; private set; } = null!;
-
-    #endregion
-
     #region Constants
 
     /// <summary>
@@ -148,49 +94,54 @@ public sealed class Plugin : IDalamudPlugin
     /// Initializes services, configuration, windows, commands, and event subscriptions.
     ///
     /// Initialization order:
-    /// 1. Load Configuration
-    /// 2. Create ResetService
-    /// 3. Create PersistenceService
-    /// 4. Load ChecklistState from persistence
-    /// 5. Check and apply resets
-    /// 6. Create DetectionService
-    /// 7. Create Windows (passing state)
-    /// 8. Subscribe to events
+    /// 1. Initialize Service container
+    /// 2. Load Configuration
+    /// 3. Create ResetService
+    /// 4. Create PersistenceService
+    /// 5. Load ChecklistState from persistence
+    /// 6. Check and apply resets
+    /// 7. Create DetectionService
+    /// 8. Create Windows (passing state)
+    /// 9. Subscribe to events
     /// </summary>
-    public Plugin()
+    /// <param name="pluginInterface">The Dalamud plugin interface.</param>
+    public Plugin(IDalamudPluginInterface pluginInterface)
     {
-        // 1. Load saved configuration or create new defaults
-        Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
-        Log.Debug("Configuration loaded.");
+        // 1. Initialize the Service container first
+        Service.Initialize(pluginInterface);
 
-        // 2. Create ResetService
+        // 2. Load saved configuration or create new defaults
+        Configuration = Service.PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
+        Service.Log.Debug("Configuration loaded.");
+
+        // 3. Create ResetService
         ResetService = new ResetService();
-        Log.Debug("ResetService initialized.");
+        Service.Log.Debug("ResetService initialized.");
 
-        // 3. Create PersistenceService (using file path approach for simplicity, with logger for diagnostics)
-        var configPath = Path.Combine(PluginInterface.ConfigDirectory.FullName, ChecklistStateFileName);
-        PersistenceService = new PersistenceService(configPath, Log);
-        Log.Debug("PersistenceService initialized with path: {Path}", configPath);
+        // 4. Create PersistenceService (using file path approach for simplicity, with logger for diagnostics)
+        var configPath = Path.Combine(Service.PluginInterface.ConfigDirectory.FullName, ChecklistStateFileName);
+        PersistenceService = new PersistenceService(configPath, Service.Log);
+        Service.Log.Debug("PersistenceService initialized with path: {Path}", configPath);
 
-        // 4. Load ChecklistState from persistence
+        // 5. Load ChecklistState from persistence
         ChecklistState = PersistenceService.Load();
 
         // Ensure tasks are populated if this is a fresh state or tasks were cleared
         if (ChecklistState.Tasks == null || ChecklistState.Tasks.Count == 0)
         {
             ChecklistState.Tasks = TaskRegistry.GetDefaultTasks();
-            Log.Information("Initialized checklist with {Count} default tasks.", ChecklistState.Tasks.Count);
+            Service.Log.Information("Initialized checklist with {Count} default tasks.", ChecklistState.Tasks.Count);
         }
         else
         {
-            Log.Debug("Loaded existing checklist with {Count} tasks.", ChecklistState.Tasks.Count);
+            Service.Log.Debug("Loaded existing checklist with {Count} tasks.", ChecklistState.Tasks.Count);
         }
 
-        // 5. Create DetectionService
+        // 6. Create DetectionService
         // Note: Reset sync is deferred to first framework tick (Issue #4 fix)
         // to ensure detectors are fully initialized before receiving reset signals.
-        DetectionService = new DetectionService(Log);
-        Log.Debug("DetectionService initialized.");
+        DetectionService = new DetectionService(Service.Log);
+        Service.Log.Debug("DetectionService initialized.");
 
         // Register detectors based on configuration feature flags
         // Reset sync will occur on first framework tick via _pendingInitialResetSync flag
@@ -214,16 +165,16 @@ public sealed class Plugin : IDalamudPlugin
         WindowSystem.AddWindow(SettingsWindow);
 
         // Register command handler
-        CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
+        Service.CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
             HelpMessage = "Toggle the Dailies Checklist window"
         });
 
         // 8. Subscribe to events
-        PluginInterface.UiBuilder.Draw += DrawUI;
-        PluginInterface.UiBuilder.OpenConfigUi += ToggleSettingsUI;
-        PluginInterface.UiBuilder.OpenMainUi += ToggleMainUI;
-        Framework.Update += OnFrameworkUpdate;
+        Service.PluginInterface.UiBuilder.Draw += DrawUI;
+        Service.PluginInterface.UiBuilder.OpenConfigUi += ToggleSettingsUI;
+        Service.PluginInterface.UiBuilder.OpenMainUi += ToggleMainUI;
+        Service.Framework.Update += OnFrameworkUpdate;
 
         // Subscribe to detection service events for auto-detection updates
         DetectionService.OnTaskStateChanged += OnTaskStateChanged;
@@ -232,7 +183,7 @@ public sealed class Plugin : IDalamudPlugin
         PersistenceService.OnSaveCompleted += OnSaveCompleted;
         PersistenceService.OnLoadCompleted += OnLoadCompleted;
 
-        Log.Information("Dailies Checklist plugin loaded successfully!");
+        Service.Log.Information("Dailies Checklist plugin loaded successfully!");
     }
 
     #endregion
@@ -256,7 +207,7 @@ public sealed class Plugin : IDalamudPlugin
     /// </summary>
     public void Dispose()
     {
-        Log.Information("Disposing Dailies Checklist plugin...");
+        Service.Log.Information("Disposing Dailies Checklist plugin...");
 
         // Issue #6 fix: Capture all service/window references locally before disposal.
         // This prevents null reference issues if services were partially initialized
@@ -267,21 +218,18 @@ public sealed class Plugin : IDalamudPlugin
         var localChecklistState = ChecklistState;
         var localMainWindow = MainWindow;
         var localSettingsWindow = SettingsWindow;
-        var localPluginInterface = PluginInterface;
-        var localFramework = Framework;
-        var localCommandManager = CommandManager;
 
-        // 1. Unsubscribe from all events (using captured references with null checks)
-        if (localPluginInterface?.UiBuilder != null)
+        // 1. Unsubscribe from all events (using Service references with null checks)
+        if (Service.PluginInterface?.UiBuilder != null)
         {
-            localPluginInterface.UiBuilder.Draw -= DrawUI;
-            localPluginInterface.UiBuilder.OpenConfigUi -= ToggleSettingsUI;
-            localPluginInterface.UiBuilder.OpenMainUi -= ToggleMainUI;
+            Service.PluginInterface.UiBuilder.Draw -= DrawUI;
+            Service.PluginInterface.UiBuilder.OpenConfigUi -= ToggleSettingsUI;
+            Service.PluginInterface.UiBuilder.OpenMainUi -= ToggleMainUI;
         }
 
-        if (localFramework != null)
+        if (Service.Framework != null)
         {
-            localFramework.Update -= OnFrameworkUpdate;
+            Service.Framework.Update -= OnFrameworkUpdate;
         }
 
         // Unsubscribe from service events
@@ -302,22 +250,25 @@ public sealed class Plugin : IDalamudPlugin
         {
             localMainWindow?.Dispose();
             localSettingsWindow?.Dispose();
-            Log.Debug("Windows disposed.");
+            Service.Log.Debug("Windows disposed.");
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "Error disposing windows.");
+            Service.Log.Error(ex, "Error disposing windows.");
         }
+
+        // Clear popup state to prevent memory leaks
+        UIHelpers.ClearPopupState();
 
         // 3. Dispose DetectionService
         try
         {
             localDetectionService?.Dispose();
-            Log.Debug("DetectionService disposed.");
+            Service.Log.Debug("DetectionService disposed.");
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "Error disposing DetectionService.");
+            Service.Log.Error(ex, "Error disposing DetectionService.");
         }
 
         // 4. Save state via PersistenceService (immediate save before disposal)
@@ -326,11 +277,11 @@ public sealed class Plugin : IDalamudPlugin
             try
             {
                 localPersistenceService.SaveImmediate(localChecklistState);
-                Log.Debug("ChecklistState saved on disposal.");
+                Service.Log.Debug("ChecklistState saved on disposal.");
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "Failed to save checklist state during disposal.");
+                Service.Log.Error(ex, "Failed to save checklist state during disposal.");
             }
         }
 
@@ -338,35 +289,35 @@ public sealed class Plugin : IDalamudPlugin
         try
         {
             localPersistenceService?.Dispose();
-            Log.Debug("PersistenceService disposed.");
+            Service.Log.Debug("PersistenceService disposed.");
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "Error disposing PersistenceService.");
+            Service.Log.Error(ex, "Error disposing PersistenceService.");
         }
 
         // 6. Dispose ResetService
         try
         {
             localResetService?.Dispose();
-            Log.Debug("ResetService disposed.");
+            Service.Log.Debug("ResetService disposed.");
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "Error disposing ResetService.");
+            Service.Log.Error(ex, "Error disposing ResetService.");
         }
 
         // Unregister command handlers
         try
         {
-            localCommandManager?.RemoveHandler(CommandName);
+            Service.CommandManager?.RemoveHandler(CommandName);
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "Error removing command handler.");
+            Service.Log.Error(ex, "Error removing command handler.");
         }
 
-        Log.Information("Dailies Checklist plugin unloaded.");
+        Service.Log.Information("Dailies Checklist plugin unloaded.");
     }
 
     #endregion
@@ -426,14 +377,14 @@ public sealed class Plugin : IDalamudPlugin
         var task = ChecklistState.GetTaskById(taskId);
         if (task == null)
         {
-            Log.Warning("Received state change for unknown task '{TaskId}'.", taskId);
+            Service.Log.Warning("Received state change for unknown task '{TaskId}'.", taskId);
             return;
         }
 
         // Only update if not manually overridden
         if (task.IsManuallySet)
         {
-            Log.Debug("Ignoring auto-detection for manually set task '{TaskId}'.", taskId);
+            Service.Log.Debug("Ignoring auto-detection for manually set task '{TaskId}'.", taskId);
             return;
         }
 
@@ -447,7 +398,7 @@ public sealed class Plugin : IDalamudPlugin
                 task.CurrentCount = isCompleted ? task.MaxCount : 0;
             }
 
-            Log.Debug("Task '{TaskId}' auto-detected as {State} by {Detector}.",
+            Service.Log.Debug("Task '{TaskId}' auto-detected as {State} by {Detector}.",
                 taskId,
                 isCompleted ? "complete" : "incomplete",
                 detectorType.Name);
@@ -465,11 +416,11 @@ public sealed class Plugin : IDalamudPlugin
     {
         if (success)
         {
-            Log.Debug("Checklist state saved successfully.");
+            Service.Log.Debug("Checklist state saved successfully.");
         }
         else
         {
-            Log.Warning("Failed to save checklist state.");
+            Service.Log.Warning("Failed to save checklist state.");
         }
     }
 
@@ -481,11 +432,11 @@ public sealed class Plugin : IDalamudPlugin
     {
         if (success)
         {
-            Log.Debug("Checklist state loaded successfully.");
+            Service.Log.Debug("Checklist state loaded successfully.");
         }
         else
         {
-            Log.Warning("Failed to load checklist state, using defaults.");
+            Service.Log.Warning("Failed to load checklist state, using defaults.");
         }
     }
 
@@ -501,7 +452,7 @@ public sealed class Plugin : IDalamudPlugin
         if (_pendingInitialResetSync)
         {
             _pendingInitialResetSync = false;
-            Log.Debug("Performing deferred initial reset sync on first framework tick.");
+            Service.Log.Debug("Performing deferred initial reset sync on first framework tick.");
             ApplyResetsAndSyncDetectors();
             return;
         }
@@ -526,7 +477,7 @@ public sealed class Plugin : IDalamudPlugin
             if (kvp.Value)
             {
                 resetApplied = true;
-                Log.Information("Applied {ResetType} reset.", kvp.Key);
+                Service.Log.Information("Applied {ResetType} reset.", kvp.Key);
             }
         }
 
@@ -611,20 +562,20 @@ public sealed class Plugin : IDalamudPlugin
         try
         {
             DetectionService.AddDetector(
-                new RouletteDetector(Log, DutyState, ClientState),
+                new RouletteDetector(Service.Log, Service.DutyState, Service.ClientState),
                 Configuration.FeatureFlags.EnableRouletteDetection);
 
             DetectionService.AddDetector(
-                new CactpotDetector(Log, ClientState, AddonLifecycle),
+                new CactpotDetector(Service.Log, Service.ClientState, Service.AddonLifecycle),
                 Configuration.FeatureFlags.EnableCactpotDetection);
 
             DetectionService.AddDetector(
-                new BeastTribeDetector(Log, ClientState),
+                new BeastTribeDetector(Service.Log, Service.ClientState),
                 Configuration.FeatureFlags.EnableBeastTribeDetection);
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "Failed to register one or more detectors.");
+            Service.Log.Error(ex, "Failed to register one or more detectors.");
         }
     }
 

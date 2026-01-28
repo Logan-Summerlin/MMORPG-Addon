@@ -288,7 +288,7 @@ public class MainWindow : Window, IDisposable
             }
         }
 
-        Plugin.Log.Information($"Reset all {category} tasks");
+        Service.Log.Information($"Reset all {category} tasks");
 
         // Notify that state has changed (for persistence)
         _onStateChanged?.Invoke();
@@ -398,7 +398,7 @@ public class MainWindow : Window, IDisposable
             task.CurrentCount = task.IsCompleted ? task.MaxCount : 0;
         }
 
-        Plugin.Log.Debug($"Task '{task.Name}' toggled to {(task.IsCompleted ? "completed" : "incomplete")}");
+        Service.Log.Debug($"Task '{task.Name}' toggled to {(task.IsCompleted ? "completed" : "incomplete")}");
 
         // Notify that state has changed (for persistence)
         _onStateChanged?.Invoke();
@@ -443,7 +443,7 @@ public class MainWindow : Window, IDisposable
             }
             catch (Exception ex)
             {
-                Plugin.Log.Error(ex, "Failed to calculate reset text from ResetService.");
+                Service.Log.Error(ex, "Failed to calculate reset text from ResetService.");
                 // Fall through to legacy calculation on error
             }
         }
