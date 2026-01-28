@@ -15,6 +15,9 @@ env:
   PLUGIN_NAME: DailiesChecklist
   SOLUTION_NAME: DailiesChecklist
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
