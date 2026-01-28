@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using Dalamud.Plugin.Services;
 
 namespace DailiesChecklist.Detectors;
@@ -44,6 +45,40 @@ public sealed class BeastTribeDetector : ITaskDetector
     private const int MaxDailyAllowances = 12;
 
     /// <summary>
+    /// Detection limitations for this detector.
+    /// Describes gaps in detection capability for UI display.
+    /// </summary>
+    private static readonly IReadOnlyList<DetectionLimitation> Limitations = new ReadOnlyCollection<DetectionLimitation>(
+        new List<DetectionLimitation>
+        {
+            new DetectionLimitation(
+                TaskId: "beast_tribe_quests",
+                LimitationType: DetectionLimitationType.SessionOnly,
+                Description: "Beast tribe quest completions are only tracked during this session. " +
+                             "Quests completed before logging in will not be counted.",
+                TechnicalReason: "Quest completion event hooking is not yet implemented. " +
+                                 "Current implementation only supports manual tracking and " +
+                                 "programmatic updates via RecordQuestCompletion()."
+            ),
+            new DetectionLimitation(
+                TaskId: "beast_tribe_quests",
+                LimitationType: DetectionLimitationType.NoInitialStateQuery,
+                Description: "Cannot determine how many beast tribe allowances were already used when logging in.",
+                TechnicalReason: "TryReadAllowancesFromGameData() is not implemented. " +
+                                 "Implementation requires FFXIVClientStructs to read PlayerState.BeastTribeAllowances " +
+                                 "from game memory. This is technically feasible but not yet integrated."
+            ),
+            new DetectionLimitation(
+                TaskId: "beast_tribe_quests",
+                LimitationType: DetectionLimitationType.PartialDetection,
+                Description: "Automatic detection of quest completions is not implemented. " +
+                             "Please manually track your beast tribe allowance usage.",
+                TechnicalReason: "Detecting beast tribe quest completion requires hooking quest completion events " +
+                                 "and filtering for beast tribe quest IDs, which is not yet implemented."
+            )
+        });
+
+    /// <summary>
     /// Task ID for beast tribe daily allowances.
     /// Must match the ID in TaskRegistry.
     /// </summary>
@@ -59,7 +94,13 @@ public sealed class BeastTribeDetector : ITaskDetector
     public bool IsEnabled { get; set; } = true;
 
     /// <inheritdoc />
+    public bool HasLimitedDetection => true;
+
+    /// <inheritdoc />
     public event Action<string, bool>? OnTaskStateChanged;
+
+    /// <inheritdoc />
+    public IReadOnlyList<DetectionLimitation> GetDetectionLimitations() => Limitations;
 
     /// <summary>
     /// Creates a new BeastTribeDetector instance.
@@ -97,14 +138,57 @@ public sealed class BeastTribeDetector : ITaskDetector
     /// </summary>
     /// <returns>Remaining allowances, or null if unavailable.</returns>
     /// <remarks>
-    /// Implementation note: Beast tribe allowances can potentially be read from
-    /// the PlayerState game structure. This requires FFXIVClientStructs integration.
-    /// For now, returns null to indicate data is not available.
+    /// <para>
+    /// <strong>KNOWN LIMITATION:</strong> This method is not yet implemented.
+    /// It always returns null, meaning initial state cannot be queried.
+    /// </para>
+    /// <para>
+    /// <strong>Technical Details:</strong>
+    /// Beast tribe allowances CAN be read from the game memory using FFXIVClientStructs:
+    /// <code>
+    /// // Potential implementation (requires FFXIVClientStructs package):
+    /// unsafe {
+    ///     var playerState = FFXIVClientStructs.FFXIV.Client.Game.UI.PlayerState.Instance();
+    ///     if (playerState != null)
+    ///         return playerState->BeastTribeAllowances;
+    /// }
+    /// </code>
+    /// </para>
+    /// <para>
+    /// <strong>Why Not Implemented:</strong>
+    /// <list type="bullet">
+    ///   <item>Requires adding FFXIVClientStructs as a dependency</item>
+    ///   <item>Unsafe code requires careful memory management</item>
+    ///   <item>Game structure offsets may change between patches</item>
+    ///   <item>Need to verify the field location in current game version</item>
+    /// </list>
+    /// </para>
+    /// <para>
+    /// <strong>Current Workaround:</strong>
+    /// Users can manually set their allowance count, or the plugin can track
+    /// quest completions during the session (if quest completion hooks are added).
+    /// </para>
     /// </remarks>
     private int? TryReadAllowancesFromGameData()
     {
-        // TODO: Implement using FFXIVClientStructs.FFXIV.Client.Game.UI.PlayerState
-        // The BeastTribeAllowances field contains remaining daily allowances
+        // LIMITATION: Initial state query is not implemented.
+        //
+        // This COULD be implemented using FFXIVClientStructs:
+        //
+        // unsafe {
+        //     var playerState = FFXIVClientStructs.FFXIV.Client.Game.UI.PlayerState.Instance();
+        //     if (playerState != null)
+        //         return playerState->BeastTribeAllowances;
+        // }
+        //
+        // However, this requires:
+        // 1. Adding FFXIVClientStructs NuGet package
+        // 2. Enabling unsafe code in the project
+        // 3. Testing with current game version to verify offsets
+        //
+        // For now, return null to indicate data is not available.
+        // The HasLimitedDetection property communicates this to the UI.
+
         return null;
     }
 
@@ -130,14 +214,28 @@ public sealed class BeastTribeDetector : ITaskDetector
             _clientState.Logout += OnLogout;
 
             _isInitialized = true;
-            _log.Information("BeastTribeDetector initialized.");
+            _log.Information(
+                "BeastTribeDetector initialized. Note: Detection has significant limitations - " +
+                "see HasLimitedDetection and GetDetectionLimitations() for details.");
 
-            // TODO: Phase 2 - Query initial allowance state
-            // Need to determine how to read remaining allowances from game data
-            // Possible approaches:
-            // - Read from character info/timers
-            // - Hook quest acceptance/completion
-            // - Monitor relevant UI elements
+            // LIMITATION: Beast tribe detection is currently very limited.
+            //
+            // What's NOT implemented:
+            // 1. Initial allowance state query (TryReadAllowancesFromGameData returns null)
+            // 2. Quest completion event hooks (no automatic tracking)
+            // 3. Territory/NPC interaction detection
+            //
+            // What IS available:
+            // 1. Manual tracking via RecordQuestCompletion() and SetAllowancesRemaining()
+            // 2. Reset handling on daily reset and logout
+            // 3. Event notifications when state changes
+            //
+            // Future implementation paths:
+            // 1. FFXIVClientStructs for PlayerState.BeastTribeAllowances (initial state)
+            // 2. Quest completion event hooks via Dalamud.Game.Addon.Lifecycle
+            // 3. IFramework.Update polling to read game state periodically
+            //
+            // The HasLimitedDetection property = true communicates these gaps to the UI.
         }
         catch (Exception ex)
         {
@@ -240,12 +338,24 @@ public sealed class BeastTribeDetector : ITaskDetector
     /// Records completion of a beast tribe quest, using one allowance.
     /// </summary>
     /// <remarks>
-    /// TODO: Phase 2 - Call this when a beast tribe quest completion is detected.
-    ///
-    /// Detection approaches:
-    /// - Hook quest completion events
-    /// - Monitor for beast tribe quest IDs
-    /// - Track reputation gain events
+    /// <para>
+    /// <strong>Current Usage:</strong>
+    /// This method is publicly exposed for manual tracking or external integration.
+    /// There is no automatic detection that calls this method.
+    /// </para>
+    /// <para>
+    /// <strong>KNOWN LIMITATION:</strong> Automatic quest completion detection is not implemented.
+    /// This method must be called manually (e.g., via UI button) or by future detection logic.
+    /// </para>
+    /// <para>
+    /// <strong>Future Implementation (not yet done):</strong>
+    /// <list type="bullet">
+    ///   <item>Hook quest completion events via Dalamud services</item>
+    ///   <item>Filter for beast tribe quest IDs from game data</item>
+    ///   <item>Monitor reputation gain events (BeastReputationRank changes)</item>
+    ///   <item>Track NPC interaction with beast tribe quest givers</item>
+    /// </list>
+    /// </para>
     /// </remarks>
     public void RecordQuestCompletion()
     {
@@ -302,12 +412,23 @@ public sealed class BeastTribeDetector : ITaskDetector
     /// Queries the current beast tribe allowance state from game data.
     /// </summary>
     /// <remarks>
-    /// TODO: Phase 2 - Implement actual game data query
-    ///
-    /// Possible data sources:
-    /// - Character sheet / player state
-    /// - Timers window data
-    /// - Quest journal state
+    /// <para>
+    /// <strong>KNOWN LIMITATION:</strong> This method currently cannot retrieve initial state.
+    /// TryReadAllowancesFromGameData() returns null because game memory reading is not implemented.
+    /// </para>
+    /// <para>
+    /// <strong>Possible Data Sources (not yet implemented):</strong>
+    /// <list type="bullet">
+    ///   <item>PlayerState.BeastTribeAllowances via FFXIVClientStructs</item>
+    ///   <item>Timers window addon node data</item>
+    ///   <item>Character info game structures</item>
+    /// </list>
+    /// </para>
+    /// <para>
+    /// <strong>Current Behavior:</strong>
+    /// Logs that data is unavailable and returns without setting state.
+    /// Users must manually track their allowance usage.
+    /// </para>
     /// </remarks>
     private void QueryAllowanceState()
     {
@@ -324,7 +445,11 @@ public sealed class BeastTribeDetector : ITaskDetector
             }
             else
             {
-                _log.Debug("Beast tribe allowance data not available from game data.");
+                // LIMITATION: Game data reading is not implemented.
+                // This is expected behavior - log at Verbose level to avoid spam.
+                _log.Verbose(
+                    "BeastTribeDetector: Initial allowance state unavailable. " +
+                    "Detection is limited - see GetDetectionLimitations() for details.");
             }
         }, "QueryAllowanceState");
     }

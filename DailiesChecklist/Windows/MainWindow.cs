@@ -330,6 +330,11 @@ public class MainWindow : Window, IDisposable
                 ImGui.Text(taskText);
             }
 
+            // IMPORTANT: Capture hover state immediately after drawing the task text.
+            // This fixes a UX bug where the tooltip was attached to the last drawn item
+            // (count text or auto-detect indicator) instead of the task label.
+            var isTaskTextHovered = ImGui.IsItemHovered();
+
             // Auto-detect indicator: show asterisk (*) for auto-detected tasks
             if (_configuration.ShowAutoDetectIndicators && task.Detection != DetectionType.Manual)
             {
@@ -359,8 +364,9 @@ public class MainWindow : Window, IDisposable
                 ImGui.TextColored(countColor, $"({task.CurrentCount}/{task.MaxCount})");
             }
 
-            // Tooltip with task description
-            if (ImGui.IsItemHovered() && !string.IsNullOrEmpty(task.Description))
+            // Tooltip with task description - shown when hovering the task text
+            // Uses the captured hover state from immediately after drawing the task label
+            if (isTaskTextHovered && !string.IsNullOrEmpty(task.Description))
             {
                 var tooltipText = task.Description;
 

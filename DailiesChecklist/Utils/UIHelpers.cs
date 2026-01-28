@@ -370,10 +370,7 @@ public static class UIHelpers
         string confirmText = "Confirm",
         string cancelText = "Cancel")
     {
-        if (!_popupOpen.TryGetValue(id, out var popupOpen))
-        {
-            popupOpen = true;
-        }
+        var popupOpen = GetPopupOpen(id);
 
         if (ImGui.BeginPopupModal(id, ref popupOpen, ImGuiWindowFlags.AlwaysAutoResize))
         {
@@ -398,11 +395,61 @@ public static class UIHelpers
             ImGui.EndPopup();
         }
 
-        _popupOpen[id] = popupOpen;
+        SetPopupOpen(id, popupOpen);
     }
 
-    // Helper for popup state
-    private static readonly Dictionary<string, bool> _popupOpen = new(StringComparer.Ordinal);
+    // Helper for popup state - stores popup open state and last access time for cleanup
+    private static readonly Dictionary<string, PopupStateEntry> _popupState = new(StringComparer.Ordinal);
+
+    // Maximum age for popup state entries before they are considered stale (10 minutes)
+    private const int PopupStateMaxAgeMinutes = 10;
+
+    // Maximum number of popup state entries to track
+    private const int MaxPopupStateEntries = 100;
+
+    /// <summary>
+    /// Internal structure to track popup state with timestamp for cleanup.
+    /// </summary>
+    private struct PopupStateEntry
+    {
+        public bool IsOpen;
+        public DateTime LastAccessed;
+
+        public PopupStateEntry(bool isOpen)
+        {
+            IsOpen = isOpen;
+            LastAccessed = DateTime.UtcNow;
+        }
+    }
+
+    /// <summary>
+    /// Gets or sets the popup open state for an ID, with automatic staleness tracking.
+    /// </summary>
+    private static bool GetPopupOpen(string id)
+    {
+        if (_popupState.TryGetValue(id, out var entry))
+        {
+            // Update last accessed time
+            entry.LastAccessed = DateTime.UtcNow;
+            _popupState[id] = entry;
+            return entry.IsOpen;
+        }
+        return true; // Default to open for new popups
+    }
+
+    /// <summary>
+    /// Sets the popup open state for an ID.
+    /// </summary>
+    private static void SetPopupOpen(string id, bool isOpen)
+    {
+        _popupState[id] = new PopupStateEntry(isOpen);
+
+        // Periodically clean up stale entries when adding new ones
+        if (_popupState.Count > MaxPopupStateEntries)
+        {
+            CleanupStalePopupState();
+        }
+    }
 
     /// <summary>
     /// Opens a confirmation popup by ID.
@@ -410,9 +457,58 @@ public static class UIHelpers
     /// <param name="id">The popup ID to open.</param>
     public static void OpenConfirmationPopup(string id)
     {
-        _popupOpen[id] = true;
+        SetPopupOpen(id, true);
         ImGui.OpenPopup(id);
     }
+
+    /// <summary>
+    /// Clears all popup state entries.
+    /// Call this when the plugin is unloaded or when a major UI state change occurs.
+    /// </summary>
+    public static void ClearPopupState()
+    {
+        _popupState.Clear();
+    }
+
+    /// <summary>
+    /// Clears the popup state for a specific ID.
+    /// Useful when dynamically generated popup IDs are no longer needed.
+    /// </summary>
+    /// <param name="id">The popup ID to clear.</param>
+    public static void ClearPopupState(string id)
+    {
+        _popupState.Remove(id);
+    }
+
+    /// <summary>
+    /// Removes stale popup state entries that haven't been accessed recently.
+    /// This is called automatically when the popup state grows too large,
+    /// but can also be called manually during maintenance operations.
+    /// </summary>
+    public static void CleanupStalePopupState()
+    {
+        var cutoffTime = DateTime.UtcNow.AddMinutes(-PopupStateMaxAgeMinutes);
+        var staleIds = new List<string>();
+
+        foreach (var kvp in _popupState)
+        {
+            if (kvp.Value.LastAccessed < cutoffTime)
+            {
+                staleIds.Add(kvp.Key);
+            }
+        }
+
+        foreach (var id in staleIds)
+        {
+            _popupState.Remove(id);
+        }
+    }
+
+    /// <summary>
+    /// Gets the current count of tracked popup state entries.
+    /// Useful for diagnostics and testing.
+    /// </summary>
+    public static int PopupStateCount => _popupState.Count;
 
     #endregion
 }

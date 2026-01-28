@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using Dalamud.Plugin.Services;
 
 namespace DailiesChecklist.Detectors;
@@ -40,6 +41,32 @@ public sealed class RouletteDetector : ITaskDetector
     private DateTime _lastRouletteIdSeenUtc = DateTime.MinValue;
 
     private static readonly TimeSpan RouletteIdCacheWindow = TimeSpan.FromHours(6);
+
+    /// <summary>
+    /// Detection limitations for this detector.
+    /// Populated during construction and exposed via GetDetectionLimitations().
+    /// </summary>
+    private static readonly IReadOnlyList<DetectionLimitation> Limitations = new ReadOnlyCollection<DetectionLimitation>(
+        new List<DetectionLimitation>
+        {
+            new DetectionLimitation(
+                TaskId: null, // Applies to all tasks
+                LimitationType: DetectionLimitationType.SessionOnly,
+                Description: "Roulette completions are only detected during this session. " +
+                             "Tasks completed before logging in or before enabling the plugin will not be detected.",
+                TechnicalReason: "Initial state query requires reading game memory structures (ContentsInfo agent " +
+                                 "or Timers window data) which is complex and version-dependent. " +
+                                 "Currently, detection relies on IDutyState.DutyCompleted events which only fire " +
+                                 "for duties completed during the current session."
+            ),
+            new DetectionLimitation(
+                TaskId: null, // Applies to all tasks
+                LimitationType: DetectionLimitationType.NoInitialStateQuery,
+                Description: "Cannot determine which roulettes were already completed today when logging in.",
+                TechnicalReason: "QueryInitialState() is not yet implemented. Requires FFXIVClientStructs " +
+                                 "integration to read ContentRouletteCompletion data from game memory."
+            )
+        });
 
     /// <summary>
     /// Task IDs for all supported duty roulettes.
@@ -84,7 +111,13 @@ public sealed class RouletteDetector : ITaskDetector
     public bool IsEnabled { get; set; } = true;
 
     /// <inheritdoc />
+    public bool HasLimitedDetection => true;
+
+    /// <inheritdoc />
     public event Action<string, bool>? OnTaskStateChanged;
+
+    /// <inheritdoc />
+    public IReadOnlyList<DetectionLimitation> GetDetectionLimitations() => Limitations;
 
     /// <summary>
     /// Creates a new RouletteDetector instance.
@@ -331,26 +364,57 @@ public sealed class RouletteDetector : ITaskDetector
     /// Queries the initial roulette completion state from game data on login.
     /// </summary>
     /// <remarks>
-    /// This method attempts to read the current roulette completion state
-    /// so the checklist accurately reflects what the player has already done today.
-    /// Reading this state requires accessing game memory structures which is complex
-    /// and may need to be deferred or implemented using game UI agents.
+    /// <para>
+    /// <strong>KNOWN LIMITATION:</strong> Initial state query is not yet implemented.
+    /// This means roulettes completed before the plugin was loaded (or before logging in)
+    /// will not be detected. Users may see incomplete tasks even after completing them
+    /// earlier in the day.
+    /// </para>
+    /// <para>
+    /// <strong>Technical Details:</strong>
+    /// Reading the current roulette completion state requires accessing game memory
+    /// structures such as the Timers window data or ContentsInfo agent. This is complex
+    /// because:
+    /// <list type="bullet">
+    ///   <item>Memory offsets may change between game patches</item>
+    ///   <item>Requires FFXIVClientStructs integration for safe memory access</item>
+    ///   <item>The ContentRouletteCompletion data structure needs reverse engineering</item>
+    /// </list>
+    /// </para>
+    /// <para>
+    /// <strong>Current Behavior:</strong>
+    /// Detection relies entirely on IDutyState.DutyCompleted events, which only fire
+    /// for duties completed during the current session after the plugin initializes.
+    /// </para>
+    /// <para>
+    /// <strong>Workaround:</strong>
+    /// Users can manually check off roulettes they completed before logging in.
+    /// The UI should communicate this limitation via the HasLimitedDetection property.
+    /// </para>
     /// </remarks>
     private void QueryInitialState()
     {
         try
         {
-            // Initial state query is not yet implemented.
-            // This requires reading game memory structures (e.g., the Timers window data
-            // or ContentsInfo agent) which is complex and may vary between game versions.
-            // For now, we rely on detecting completions as they happen during the session.
+            // LIMITATION: Initial state query is not implemented.
+            //
+            // Implementation would require:
+            // 1. FFXIVClientStructs dependency for safe memory access
+            // 2. Reading from UIState->ContentsFinder or similar game structure
+            // 3. Mapping the game's internal completion flags to our task IDs
+            //
+            // For now, we log the limitation and rely on session-based detection only.
+            // The HasLimitedDetection property and GetDetectionLimitations() method
+            // communicate this limitation to the UI layer.
+
             _log.Information(
-                "RouletteDetector: Initial state query not yet implemented. " +
-                "Roulette completions will be detected as they occur during this session.");
+                "RouletteDetector: Initial state query not implemented. " +
+                "Detection is session-only - roulettes completed before plugin load will not be detected. " +
+                "Users should manually check off any previously completed roulettes.");
         }
         catch (Exception ex)
         {
-            _log.Error(ex, "Error querying initial roulette state.");
+            _log.Error(ex, "Error in QueryInitialState (currently a no-op).");
         }
     }
 

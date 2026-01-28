@@ -133,6 +133,12 @@ public sealed class Plugin : IDalamudPlugin
     /// </summary>
     private DateTime _nextResetCheckUtc = DateTime.MinValue;
 
+    /// <summary>
+    /// Flag indicating whether the initial reset sync is pending.
+    /// Deferred to first framework tick to ensure detectors are fully initialized.
+    /// </summary>
+    private bool _pendingInitialResetSync = true;
+
     #endregion
 
     #region Constructor
@@ -180,16 +186,15 @@ public sealed class Plugin : IDalamudPlugin
             Log.Debug("Loaded existing checklist with {Count} tasks.", ChecklistState.Tasks.Count);
         }
 
-        // 5. Check and apply resets
-        // 6. Create DetectionService
+        // 5. Create DetectionService
+        // Note: Reset sync is deferred to first framework tick (Issue #4 fix)
+        // to ensure detectors are fully initialized before receiving reset signals.
         DetectionService = new DetectionService(Log);
         Log.Debug("DetectionService initialized.");
 
         // Register detectors based on configuration feature flags
+        // Reset sync will occur on first framework tick via _pendingInitialResetSync flag
         RegisterDetectors();
-
-        // Check and apply resets (syncing detectors after registration)
-        ApplyResetsAndSyncDetectors();
 
         // 7. Create Windows (passing state and services via dependency injection)
         MainWindow = new MainWindow(
@@ -245,45 +250,82 @@ public sealed class Plugin : IDalamudPlugin
     /// 4. Save state via PersistenceService
     /// 5. Dispose PersistenceService
     /// 6. Dispose ResetService
+    ///
+    /// Issue #6 fix: All service references are captured locally at the start
+    /// to ensure safe access even if partial initialization or disposal occurs.
     /// </summary>
     public void Dispose()
     {
         Log.Information("Disposing Dailies Checklist plugin...");
 
-        // 1. Unsubscribe from all events
-        PluginInterface.UiBuilder.Draw -= DrawUI;
-        PluginInterface.UiBuilder.OpenConfigUi -= ToggleSettingsUI;
-        PluginInterface.UiBuilder.OpenMainUi -= ToggleMainUI;
-        Framework.Update -= OnFrameworkUpdate;
+        // Issue #6 fix: Capture all service/window references locally before disposal.
+        // This prevents null reference issues if services were partially initialized
+        // or if disposal is called during failure recovery.
+        var localDetectionService = DetectionService;
+        var localPersistenceService = PersistenceService;
+        var localResetService = ResetService;
+        var localChecklistState = ChecklistState;
+        var localMainWindow = MainWindow;
+        var localSettingsWindow = SettingsWindow;
+        var localPluginInterface = PluginInterface;
+        var localFramework = Framework;
+        var localCommandManager = CommandManager;
 
-        // Unsubscribe from service events (null-safe)
-        if (DetectionService != null)
+        // 1. Unsubscribe from all events (using captured references with null checks)
+        if (localPluginInterface?.UiBuilder != null)
         {
-            DetectionService.OnTaskStateChanged -= OnTaskStateChanged;
+            localPluginInterface.UiBuilder.Draw -= DrawUI;
+            localPluginInterface.UiBuilder.OpenConfigUi -= ToggleSettingsUI;
+            localPluginInterface.UiBuilder.OpenMainUi -= ToggleMainUI;
         }
 
-        if (PersistenceService != null)
+        if (localFramework != null)
         {
-            PersistenceService.OnSaveCompleted -= OnSaveCompleted;
-            PersistenceService.OnLoadCompleted -= OnLoadCompleted;
+            localFramework.Update -= OnFrameworkUpdate;
+        }
+
+        // Unsubscribe from service events
+        if (localDetectionService != null)
+        {
+            localDetectionService.OnTaskStateChanged -= OnTaskStateChanged;
+        }
+
+        if (localPersistenceService != null)
+        {
+            localPersistenceService.OnSaveCompleted -= OnSaveCompleted;
+            localPersistenceService.OnLoadCompleted -= OnLoadCompleted;
         }
 
         // 2. Dispose Windows
         WindowSystem.RemoveAllWindows();
-        MainWindow?.Dispose();
-        SettingsWindow?.Dispose();
-        Log.Debug("Windows disposed.");
+        try
+        {
+            localMainWindow?.Dispose();
+            localSettingsWindow?.Dispose();
+            Log.Debug("Windows disposed.");
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Error disposing windows.");
+        }
 
         // 3. Dispose DetectionService
-        DetectionService?.Dispose();
-        Log.Debug("DetectionService disposed.");
+        try
+        {
+            localDetectionService?.Dispose();
+            Log.Debug("DetectionService disposed.");
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Error disposing DetectionService.");
+        }
 
         // 4. Save state via PersistenceService (immediate save before disposal)
-        if (PersistenceService != null && ChecklistState != null)
+        if (localPersistenceService != null && localChecklistState != null)
         {
             try
             {
-                PersistenceService.SaveImmediate(ChecklistState);
+                localPersistenceService.SaveImmediate(localChecklistState);
                 Log.Debug("ChecklistState saved on disposal.");
             }
             catch (Exception ex)
@@ -293,15 +335,36 @@ public sealed class Plugin : IDalamudPlugin
         }
 
         // 5. Dispose PersistenceService
-        PersistenceService?.Dispose();
-        Log.Debug("PersistenceService disposed.");
+        try
+        {
+            localPersistenceService?.Dispose();
+            Log.Debug("PersistenceService disposed.");
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Error disposing PersistenceService.");
+        }
 
         // 6. Dispose ResetService
-        ResetService?.Dispose();
-        Log.Debug("ResetService disposed.");
+        try
+        {
+            localResetService?.Dispose();
+            Log.Debug("ResetService disposed.");
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Error disposing ResetService.");
+        }
 
         // Unregister command handlers
-        CommandManager.RemoveHandler(CommandName);
+        try
+        {
+            localCommandManager?.RemoveHandler(CommandName);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Error removing command handler.");
+        }
 
         Log.Information("Dailies Checklist plugin unloaded.");
     }
@@ -432,6 +495,17 @@ public sealed class Plugin : IDalamudPlugin
 
     private void OnFrameworkUpdate(IFramework framework)
     {
+        // Issue #4 fix: Perform initial reset sync on first framework tick
+        // This ensures detectors have completed their async initialization
+        // before receiving reset signals.
+        if (_pendingInitialResetSync)
+        {
+            _pendingInitialResetSync = false;
+            Log.Debug("Performing deferred initial reset sync on first framework tick.");
+            ApplyResetsAndSyncDetectors();
+            return;
+        }
+
         var now = DateTime.UtcNow;
         if (now < _nextResetCheckUtc)
         {

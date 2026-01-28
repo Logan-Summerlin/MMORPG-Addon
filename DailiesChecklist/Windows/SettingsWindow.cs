@@ -497,20 +497,26 @@ public class SettingsWindow : Window, IDisposable
 
     /// <summary>
     /// Resets all tasks to their default enabled states.
+    /// Uses mutation-based reset to preserve list references, ensuring any UI
+    /// components holding a reference to the task list will see the updated tasks
+    /// without needing to rebind.
     /// </summary>
     private void ResetTasksToDefaults()
     {
         var defaultTasks = TaskRegistry.GetDefaultTasks();
 
-        // If we have external state, update it; otherwise update local list
+        // Use mutation-based reset (Clear + AddRange) instead of replacing the list reference.
+        // This ensures all UI components sharing the same list instance stay synchronized.
         if (_externalState != null)
         {
-            _externalState.Tasks = defaultTasks;
-            _taskList = _externalState.Tasks;
+            _externalState.Tasks.Clear();
+            _externalState.Tasks.AddRange(defaultTasks);
+            // _taskList already references _externalState.Tasks, no reassignment needed
         }
         else
         {
-            _taskList = defaultTasks;
+            _taskList.Clear();
+            _taskList.AddRange(defaultTasks);
         }
 
         Plugin.Log.Information("Tasks reset to defaults");

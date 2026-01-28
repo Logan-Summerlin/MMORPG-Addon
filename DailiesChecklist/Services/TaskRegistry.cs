@@ -21,6 +21,13 @@ namespace DailiesChecklist.Services
         private static readonly Dictionary<string, ChecklistTask> DefaultTaskLookup =
             DefaultTasks.ToDictionary(task => task.Id, StringComparer.OrdinalIgnoreCase);
 
+        // Cached immutable filtered lists - computed once, reused for read-only access.
+        // Only clone when callers need to mutate the returned list.
+        private static readonly IReadOnlyList<ChecklistTask> CachedDailyTasks =
+            DefaultTasks.Where(task => task.Category == TaskCategory.Daily).ToList().AsReadOnly();
+        private static readonly IReadOnlyList<ChecklistTask> CachedWeeklyTasks =
+            DefaultTasks.Where(task => task.Category == TaskCategory.Weekly).ToList().AsReadOnly();
+
         /// <summary>
         /// Returns a fresh list of all tasks with default states.
         /// All tasks are enabled (IsEnabled=true) and not completed (IsCompleted=false).
@@ -446,25 +453,43 @@ namespace DailiesChecklist.Services
         }
 
         /// <summary>
-        /// Gets all daily task definitions.
+        /// Gets all daily task definitions as a mutable list.
+        /// Each task is cloned to allow safe mutation by the caller.
+        /// For read-only access during UI rendering, use <see cref="GetDailyTasksReadOnly"/> instead.
         /// </summary>
         public static List<ChecklistTask> GetDailyTasks()
         {
-            return DefaultTasks
-                .Where(task => task.Category == TaskCategory.Daily)
-                .Select(task => task.Clone())
-                .ToList();
+            return CachedDailyTasks.Select(task => task.Clone()).ToList();
         }
 
         /// <summary>
-        /// Gets all weekly task definitions.
+        /// Gets all daily task definitions as a read-only collection.
+        /// Returns cached list without cloning - do not modify the returned tasks.
+        /// Use this for read-only UI operations to avoid unnecessary allocations.
+        /// </summary>
+        public static IReadOnlyList<ChecklistTask> GetDailyTasksReadOnly()
+        {
+            return CachedDailyTasks;
+        }
+
+        /// <summary>
+        /// Gets all weekly task definitions as a mutable list.
+        /// Each task is cloned to allow safe mutation by the caller.
+        /// For read-only access during UI rendering, use <see cref="GetWeeklyTasksReadOnly"/> instead.
         /// </summary>
         public static List<ChecklistTask> GetWeeklyTasks()
         {
-            return DefaultTasks
-                .Where(task => task.Category == TaskCategory.Weekly)
-                .Select(task => task.Clone())
-                .ToList();
+            return CachedWeeklyTasks.Select(task => task.Clone()).ToList();
+        }
+
+        /// <summary>
+        /// Gets all weekly task definitions as a read-only collection.
+        /// Returns cached list without cloning - do not modify the returned tasks.
+        /// Use this for read-only UI operations to avoid unnecessary allocations.
+        /// </summary>
+        public static IReadOnlyList<ChecklistTask> GetWeeklyTasksReadOnly()
+        {
+            return CachedWeeklyTasks;
         }
 
         /// <summary>

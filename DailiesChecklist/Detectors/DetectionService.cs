@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using Dalamud.Plugin.Services;
 
@@ -353,6 +354,107 @@ public sealed class DetectionService : IDisposable
         {
             return _taskIdToDetector.Keys.ToArray();
         }
+    }
+
+    /// <summary>
+    /// Checks if a task has limited detection capability.
+    /// </summary>
+    /// <param name="taskId">The task ID to check.</param>
+    /// <returns>true if the task has detection limitations, false if full detection, null if no detector.</returns>
+    /// <exception cref="ObjectDisposedException">Thrown if the service has been disposed.</exception>
+    public bool? HasLimitedDetection(string taskId)
+    {
+        ThrowIfDisposed();
+
+        if (string.IsNullOrWhiteSpace(taskId))
+            return null;
+
+        lock (_lock)
+        {
+            if (!_taskIdToDetector.TryGetValue(taskId, out var detector))
+                return null;
+
+            return detector.HasLimitedDetection;
+        }
+    }
+
+    /// <summary>
+    /// Gets the detection limitations for a specific task.
+    /// </summary>
+    /// <param name="taskId">The task ID to query.</param>
+    /// <returns>
+    /// A list of limitations that apply to this task, or an empty list if no limitations
+    /// or no detector is registered. Returns null only if taskId is null/empty.
+    /// </returns>
+    /// <exception cref="ObjectDisposedException">Thrown if the service has been disposed.</exception>
+    /// <remarks>
+    /// This method filters the detector's limitations to return only those that apply
+    /// to the specified task (where TaskId is null for global limitations or matches the taskId).
+    /// </remarks>
+    public IReadOnlyList<DetectionLimitation>? GetDetectionLimitations(string taskId)
+    {
+        ThrowIfDisposed();
+
+        if (string.IsNullOrWhiteSpace(taskId))
+            return null;
+
+        ITaskDetector? detector;
+        lock (_lock)
+        {
+            if (!_taskIdToDetector.TryGetValue(taskId, out detector))
+                return new List<DetectionLimitation>().AsReadOnly();
+        }
+
+        try
+        {
+            var allLimitations = detector.GetDetectionLimitations();
+
+            // Filter to limitations that apply to this specific task
+            // (TaskId is null = applies to all tasks, or TaskId matches)
+            var relevantLimitations = allLimitations
+                .Where(l => l.TaskId == null || l.TaskId.Equals(taskId, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            return relevantLimitations.AsReadOnly();
+        }
+        catch (Exception ex)
+        {
+            _log.Error(ex, "Error getting detection limitations for task '{TaskId}'.", taskId);
+            return new List<DetectionLimitation>().AsReadOnly();
+        }
+    }
+
+    /// <summary>
+    /// Gets all detection limitations from all registered detectors.
+    /// </summary>
+    /// <returns>A dictionary mapping detector types to their limitations.</returns>
+    /// <exception cref="ObjectDisposedException">Thrown if the service has been disposed.</exception>
+    /// <remarks>
+    /// Useful for displaying a global overview of detection capabilities in settings UI.
+    /// </remarks>
+    public Dictionary<Type, IReadOnlyList<DetectionLimitation>> GetAllDetectionLimitations()
+    {
+        ThrowIfDisposed();
+
+        var result = new Dictionary<Type, IReadOnlyList<DetectionLimitation>>();
+
+        lock (_lock)
+        {
+            foreach (var kvp in _detectors)
+            {
+                try
+                {
+                    result[kvp.Key] = kvp.Value.GetDetectionLimitations();
+                }
+                catch (Exception ex)
+                {
+                    _log.Error(ex, "Error getting limitations from detector {DetectorType}.", kvp.Key.Name);
+                    result[kvp.Key] = new List<DetectionLimitation>().AsReadOnly();
+                }
+            }
+        }
+
+        return result;
     }
 
     /// <summary>

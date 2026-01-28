@@ -12,6 +12,44 @@ namespace DailiesChecklist.Models
     /// </summary>
     public class ChecklistState : IChecklistState
     {
+        #region Data Storage Disclosure
+
+        /// <summary>
+        /// Documents what character data is stored locally by this plugin.
+        /// This constant is provided for transparency and user trust.
+        /// </summary>
+        /// <remarks>
+        /// DATA STORED LOCALLY:
+        /// - CharacterId: A numeric identifier used to track per-character checklist state.
+        /// - CharacterName: The character name, used for display and debugging only.
+        /// - Task completion states and timestamps.
+        /// - Reset tracking timestamps.
+        ///
+        /// DATA NOT STORED:
+        /// - No passwords, credentials, or authentication tokens.
+        /// - No network transmission of any data.
+        /// - No tracking of other players.
+        ///
+        /// All data is stored in the local Dalamud plugin configuration directory only.
+        /// Use ClearCharacterData() to remove character-identifying information.
+        /// </remarks>
+        public const string DataStorageDisclosure =
+            "This plugin stores CharacterId and CharacterName locally for per-character " +
+            "checklist tracking. No data is transmitted externally. Use ClearCharacterData() " +
+            "to remove character-identifying information while preserving task settings.";
+
+        #endregion
+
+        #region Validation Constants
+
+        /// <summary>
+        /// Maximum number of tasks allowed in the checklist.
+        /// Protects against corrupted config files or malicious edits causing performance issues.
+        /// </summary>
+        public const int MaxTaskCount = 100;
+
+        #endregion
+
         /// <summary>
         /// Schema version for migration support.
         /// Increment when making breaking changes to the state structure.
@@ -158,5 +196,72 @@ namespace DailiesChecklist.Models
                 CharacterName = this.CharacterName
             };
         }
+
+        #region Privacy and Data Management
+
+        /// <summary>
+        /// Clears all character-identifying information from this state.
+        /// Task settings and completion states are preserved.
+        /// Call this method to anonymize local data while keeping checklist functionality.
+        /// </summary>
+        public void ClearCharacterData()
+        {
+            CharacterId = null;
+            CharacterName = null;
+        }
+
+        #endregion
+
+        #region Validation
+
+        /// <summary>
+        /// Validates and sanitizes the state to ensure data integrity.
+        /// - Clamps task list to MaxTaskCount to prevent performance issues from corrupted configs.
+        /// - Ensures Tasks list is never null.
+        /// - Returns true if validation passed without modifications, false if corrections were made.
+        /// </summary>
+        /// <returns>True if state was already valid; false if corrections were applied.</returns>
+        public bool Validate()
+        {
+            bool wasValid = true;
+
+            // Ensure Tasks is never null
+            if (Tasks == null)
+            {
+                Tasks = new List<ChecklistTask>();
+                wasValid = false;
+            }
+
+            // Clamp task count to prevent performance issues from corrupted/malicious config
+            if (Tasks.Count > MaxTaskCount)
+            {
+                // Keep the first MaxTaskCount tasks (preserves user's original tasks)
+                Tasks = Tasks.Take(MaxTaskCount).ToList();
+                wasValid = false;
+            }
+
+            // Validate individual tasks exist (remove nulls)
+            int nullCount = Tasks.RemoveAll(t => t == null);
+            if (nullCount > 0)
+            {
+                wasValid = false;
+            }
+
+            return wasValid;
+        }
+
+        /// <summary>
+        /// Creates a validated copy of this state.
+        /// Useful for loading from potentially corrupted configuration files.
+        /// </summary>
+        /// <returns>A validated clone of the state.</returns>
+        public ChecklistState CloneValidated()
+        {
+            var clone = Clone();
+            clone.Validate();
+            return clone;
+        }
+
+        #endregion
     }
 }
