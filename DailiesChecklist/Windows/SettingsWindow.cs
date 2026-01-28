@@ -90,7 +90,7 @@ public class SettingsWindow : Window, IDisposable
     {
         // Auto-save when closing
         _configuration.Save();
-        Plugin.Log.Debug("Settings saved on window close");
+        Service.Log.Debug("Settings saved on window close");
     }
 
     /// <summary>
@@ -237,7 +237,7 @@ public class SettingsWindow : Window, IDisposable
             _configuration.WindowPosition = null;
             _configuration.WindowSize = null;
             _configuration.Save();
-            Plugin.Log.Information("Window position reset to default");
+            Service.Log.Information("Window position reset to default");
         }
         if (ImGui.IsItemHovered())
         {
@@ -329,7 +329,7 @@ public class SettingsWindow : Window, IDisposable
             _configuration.FeatureFlags.EnableRouletteDetection = enableRouletteDetection;
             _configuration.Save();
             _plugin.ApplyDetectorFeatureFlags();
-            Plugin.Log.Information($"Roulette detection {(enableRouletteDetection ? "enabled" : "disabled")}");
+            Service.Log.Information($"Roulette detection {(enableRouletteDetection ? "enabled" : "disabled")}");
         }
         if (ImGui.IsItemHovered())
         {
@@ -345,7 +345,7 @@ public class SettingsWindow : Window, IDisposable
             _configuration.FeatureFlags.EnableCactpotDetection = enableCactpotDetection;
             _configuration.Save();
             _plugin.ApplyDetectorFeatureFlags();
-            Plugin.Log.Information($"Cactpot detection {(enableCactpotDetection ? "enabled" : "disabled")}");
+            Service.Log.Information($"Cactpot detection {(enableCactpotDetection ? "enabled" : "disabled")}");
         }
         if (ImGui.IsItemHovered())
         {
@@ -361,7 +361,7 @@ public class SettingsWindow : Window, IDisposable
             _configuration.FeatureFlags.EnableBeastTribeDetection = enableBeastTribeDetection;
             _configuration.Save();
             _plugin.ApplyDetectorFeatureFlags();
-            Plugin.Log.Information($"Beast Tribe detection {(enableBeastTribeDetection ? "enabled" : "disabled")}");
+            Service.Log.Information($"Beast Tribe detection {(enableBeastTribeDetection ? "enabled" : "disabled")}");
         }
         if (ImGui.IsItemHovered())
         {
@@ -408,7 +408,7 @@ public class SettingsWindow : Window, IDisposable
             _configuration.FeatureFlags.EnableBeastTribeDetection = true;
             _configuration.Save();
             _plugin.ApplyDetectorFeatureFlags();
-            Plugin.Log.Information("All detectors enabled");
+            Service.Log.Information("All detectors enabled");
         }
 
         ImGui.SameLine();
@@ -420,7 +420,7 @@ public class SettingsWindow : Window, IDisposable
             _configuration.FeatureFlags.EnableBeastTribeDetection = false;
             _configuration.Save();
             _plugin.ApplyDetectorFeatureFlags();
-            Plugin.Log.Information("All detectors disabled");
+            Service.Log.Information("All detectors disabled");
         }
     }
 
@@ -451,7 +451,7 @@ public class SettingsWindow : Window, IDisposable
                 if (ImGui.Checkbox(label, ref isEnabled))
                 {
                     task.IsEnabled = isEnabled;
-                    Plugin.Log.Debug($"Task '{task.Name}' enabled: {isEnabled}");
+                    Service.Log.Debug($"Task '{task.Name}' enabled: {isEnabled}");
 
                     // Notify that state has changed (for persistence)
                     _onStateChanged?.Invoke();
@@ -490,7 +490,7 @@ public class SettingsWindow : Window, IDisposable
             task.IsEnabled = enabled;
         }
 
-        Plugin.Log.Information($"All tasks set to enabled: {enabled}");
+        Service.Log.Information($"All tasks set to enabled: {enabled}");
 
         // Notify that state has changed (for persistence)
         _onStateChanged?.Invoke();
@@ -520,7 +520,7 @@ public class SettingsWindow : Window, IDisposable
             _taskList.AddRange(defaultTasks);
         }
 
-        Plugin.Log.Information("Tasks reset to defaults");
+        Service.Log.Information("Tasks reset to defaults");
 
         // Notify that state has changed (for persistence)
         _onStateChanged?.Invoke();
