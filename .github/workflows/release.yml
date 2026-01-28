@@ -59,7 +59,7 @@ jobs:
       - name: Create plugin package
         shell: pwsh
         run: |
-          $outputDir = "${{ env.PLUGIN_NAME }}/bin/Release/net10.0-windows"
+          $outputDir = "${{ env.PLUGIN_NAME }}/bin/Release"
           $packageDir = "package/${{ env.PLUGIN_NAME }}"
 
           # Create package directory
