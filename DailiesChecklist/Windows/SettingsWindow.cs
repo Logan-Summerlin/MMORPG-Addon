@@ -7,7 +7,7 @@ using DailiesChecklist;
 using DailiesChecklist.Models;
 using DailiesChecklist.Services;
 using DailiesChecklist.Utils;
-using ImGuiNET;
+using Dalamud.Bindings.ImGui;
 
 namespace DailiesChecklist.Windows;
 
