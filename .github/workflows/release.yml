@@ -30,10 +30,15 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Setup Dalamud
-        uses: Blooym/setup-dalamud@v1
-        with:
-          branch: stg
+      - name: Download Dalamud
+        shell: pwsh
+        run: |
+          # Download Dalamud to the default path the SDK expects
+          $dalamudPath = "$env:AppData\XIVLauncher\addon\Hooks\dev"
+          New-Item -ItemType Directory -Force -Path $dalamudPath | Out-Null
+          Invoke-WebRequest -Uri https://goatcorp.github.io/dalamud-distrib/stg/latest.zip -OutFile latest.zip
+          Expand-Archive -Force latest.zip $dalamudPath
+          Remove-Item latest.zip
 
       - name: Restore dependencies
         run: dotnet restore
