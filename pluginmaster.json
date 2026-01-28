@@ -1,0 +1,33 @@
+[
+  {
+    "Author": "Logan Summerlin",
+    "Name": "Dailies Checklist",
+    "Punchline": "Track your daily and weekly FFXIV activities in one convenient overlay.",
+    "Description": "A quality-of-life overlay that helps you track daily and weekly reset activities in Final Fantasy XIV. Features include:\n\n- Categorized checklist for daily and weekly tasks\n- Auto-detection for supported activities (roulettes, cactpot, beast tribes, etc.)\n- Manual tracking for activities that cannot be auto-detected\n- Automatic reset at daily/weekly reset times\n- Persistent state across sessions\n- Customizable task list and UI settings\n\nCommands:\n/dailies - Toggle the main checklist window",
+    "Changelog": "Initial release - Daily and weekly activity tracking with auto-detection support",
+    "InternalName": "DailiesChecklist",
+    "AssemblyVersion": "1.0.0.0",
+    "RepoUrl": "https://github.com/Logan-Summerlin/MMORPG-Addon",
+    "ApplicableVersion": "any",
+    "Tags": [
+      "checklist",
+      "dailies",
+      "weeklies",
+      "tracker",
+      "qol",
+      "utility"
+    ],
+    "DalamudApiLevel": 14,
+    "IconUrl": "https://raw.githubusercontent.com/Logan-Summerlin/MMORPG-Addon/master/DailiesChecklist/icon.png",
+    "ImageUrls": [],
+    "DownloadLinkInstall": "https://github.com/Logan-Summerlin/MMORPG-Addon/releases/latest/download/DailiesChecklist.zip",
+    "DownloadLinkTesting": "",
+    "DownloadLinkUpdate": "https://github.com/Logan-Summerlin/MMORPG-Addon/releases/latest/download/DailiesChecklist.zip",
+    "DownloadCount": 0,
+    "LastUpdate": "1738022400",
+    "IsHide": false,
+    "IsTestingExclusive": false,
+    "AcceptsFeedback": true,
+    "FeedbackMessage": "Please report issues on GitHub or use the Dalamud feedback system."
+  }
+]
