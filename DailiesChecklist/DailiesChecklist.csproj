@@ -13,6 +13,7 @@
     <AssemblyName>DailiesChecklist</AssemblyName>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>

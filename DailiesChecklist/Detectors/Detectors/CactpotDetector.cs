@@ -3,7 +3,10 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using Dalamud.Game.Addon.Lifecycle;
 using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
+using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Plugin.Services;
+
+using Service = DailiesChecklist.Service;
 
 namespace DailiesChecklist.Detectors;
 
@@ -226,6 +229,10 @@ public sealed class CactpotDetector : ITaskDetector
     private void OnTerritoryChanged(ushort territoryType)
     {
         if (!IsEnabled || _isDisposed)
+            return;
+
+        // Guard against loading screens - game state may be invalid during area transitions
+        if (Service.Condition[ConditionFlag.BetweenAreas] || Service.Condition[ConditionFlag.BetweenAreas51])
             return;
 
         try
