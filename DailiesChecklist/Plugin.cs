@@ -3,6 +3,7 @@ using System.IO;
 using Dalamud.Game.Command;
 using Dalamud.Plugin;
 using Dalamud.Interface.Windowing;
+using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Plugin.Services;
 using DailiesChecklist.Detectors;
 using DailiesChecklist.Models;
@@ -507,6 +508,10 @@ public sealed class Plugin : IDalamudPlugin
 
     private void OnFrameworkUpdate(IFramework framework)
     {
+        // Guard against loading screens - game state may be invalid during area transitions
+        if (Service.Condition[ConditionFlag.BetweenAreas] || Service.Condition[ConditionFlag.BetweenAreas51])
+            return;
+
         // Issue #4 fix: Perform initial reset sync on first framework tick
         // This ensures detectors have completed their async initialization
         // before receiving reset signals.
