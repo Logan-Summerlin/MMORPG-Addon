@@ -63,12 +63,12 @@ jobs:
         shell: pwsh
         run: |
           $outputDir = "${{ env.PLUGIN_NAME }}/bin/Release"
-          $packageDir = "package/${{ env.PLUGIN_NAME }}"
+          $packageDir = "package"
 
           # Create package directory
           New-Item -ItemType Directory -Force -Path $packageDir
 
-          # Copy required files
+          # Copy required files to package root (no subfolder)
           Copy-Item "$outputDir/${{ env.PLUGIN_NAME }}.dll" $packageDir
           Copy-Item "${{ env.PLUGIN_NAME }}/${{ env.PLUGIN_NAME }}.json" $packageDir
 
@@ -79,7 +79,7 @@ jobs:
             Copy-Item "${{ env.PLUGIN_NAME }}/icon.png" $packageDir
           }
 
-          # Create ZIP
+          # Create ZIP with files at root level (Dalamud expects no subfolder)
           Compress-Archive -Path "package/*" -DestinationPath "${{ env.PLUGIN_NAME }}.zip" -Force
 
       - name: Upload artifact
